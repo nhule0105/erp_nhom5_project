@@ -1,0 +1,5 @@
+# Bỏ qua thư mục Database và cấu hình sinh ra tự động
+odoo-db-data/
+odoo-web-data/
+__pycache__/
+*.pyc
