@@ -1,7 +1,7 @@
 {
-    'name': 'Tự động hóa Bán hàng & Serial Number',
+    'name': 'Quản lý Bán hàng Laptop',
     'version': '18.0.1.0.0',
-    'summary': 'Ghi nhận serial và chủ sở hữu khi hoàn tất giao hàng',
+    'summary': 'Quản lý đơn bán Laptop, chọn Serial Number và lịch sử mua hàng',
     'author': 'Nhóm 5',
     'depends': ['sale_management', 'stock', 'custom_warranty'],
     'data': [
