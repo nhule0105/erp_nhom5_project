@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Giao diện Form Phiếu Bảo Hành -->
+    <record id="view_warranty_ticket_form" model="ir.ui.view">
+        <field name="name">warranty.ticket.form</field>
+        <field name="model">warranty.ticket</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <!-- Đã xóa đuôi invisible để ép nút luôn hiện -->
+                    <button name="action_approve_exchange" type="object" string="DUYỆT ĐỔI TRẢ 1-1" class="oe_highlight"/>
+                    
+                    <field name="state" widget="statusbar" statusbar_visible="new,fixing,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="ticket_code"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="serial_id"/>
+                            <field name="new_serial_id" invisible="ticket_type != 'exchange'"/>
+                        </group>
+                        <group>
+                            <field name="receive_date"/>
+                            <field name="issue_category"/>
+                            <field name="ticket_type"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Giao diện danh sách (Tree/List) -->
+    <record id="view_warranty_ticket_tree" model="ir.ui.view">
+        <field name="name">warranty.ticket.list</field>
+        <field name="model">warranty.ticket</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="ticket_code"/>
+                <field name="serial_id"/>
+                <field name="ticket_type"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Định nghĩa Action khi bấm vào Menu -->
+    <record id="action_warranty_ticket" model="ir.actions.act_window">
+        <field name="name">Phiếu Hậu Mãi</field>
+        <field name="res_model">warranty.ticket</field>
+        <field name="view_mode">list,form</field> <!-- CHỈ CẦN ĐỔI CHỮ TREE THÀNH LIST Ở ĐÂY -->
+    </record>
+
+    <!-- Kế thừa giao diện gốc của bảng mã S/N để hiện các trường Bảo hành -->
+    <record id="view_lot_form_inherit_warranty" model="ir.ui.view">
+        <field name="name">stock.lot.form.inherit.warranty</field>
+        <field name="model">stock.lot</field>
+        <!-- ĐÃ ĐỔI TÊN Ở DÒNG NÀY: -->
+        <field name="inherit_id" ref="stock.view_production_lot_form"/> 
+        <field name="arch" type="xml">
+            <!-- Nhét các trường tùy chỉnh vào ngay bên dưới trường product_id (Sản phẩm) -->
+            <xpath expr="//field[@name='product_id']" position="after">
+                <field name="x_custom_status"/>
+                <field name="x_customer_id"/>
+                <field name="x_purchase_date"/>
+                <field name="x_warranty_end_date"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

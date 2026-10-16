@@ -1,1 +1,1 @@
-from . import stock_lot
+from . import warranty_models
