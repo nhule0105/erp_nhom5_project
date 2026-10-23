@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="product_category_laptop" model="product.category">
+            <field name="name">Laptop</field>
+        </record>
+        <record id="product_category_mouse" model="product.category">
+            <field name="name">Chuột</field>
+        </record>
+        <record id="product_category_backpack" model="product.category">
+            <field name="name">Balo</field>
+        </record>
+    </data>
+</odoo>
