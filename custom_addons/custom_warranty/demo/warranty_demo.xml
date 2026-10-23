@@ -20,13 +20,13 @@
     <record id="product_warranty_demo_laptop" model="product.product">
         <field name="name">Laptop Demo Pro 14</field>
         <field name="is_storable">True</field>
-        <field name="warranty_period_days">365</field>
+        <field name="warranty_period_months">12</field>
         <field name="exchange_period_days">30</field>
     </record>
     <record id="product_warranty_demo_phone" model="product.product">
         <field name="name">Điện thoại Demo X</field>
         <field name="is_storable">True</field>
-        <field name="warranty_period_days">365</field>
+        <field name="warranty_period_months">12</field>
         <field name="exchange_period_days">30</field>
     </record>
 
@@ -77,22 +77,22 @@
     </record>
 
     <function model="stock.quant" name="_update_available_quantity">
-        <value eval="env['product.product'].browse(ref('product_warranty_demo_phone'))"/>
-        <value eval="env['stock.location'].browse(ref('stock.stock_location_customers'))"/>
+        <value model="product.product" eval="obj(ref('product_warranty_demo_phone'))"/>
+        <value model="stock.location" eval="obj(ref('stock.stock_location_customers'))"/>
         <value eval="1"/>
-        <value eval="env['stock.lot'].browse(ref('lot_warranty_demo_exchange_old'))"/>
+        <value name="lot_id" model="stock.lot" eval="obj(ref('lot_warranty_demo_exchange_old'))"/>
     </function>
     <function model="stock.quant" name="_update_available_quantity">
-        <value eval="env['product.product'].browse(ref('product_warranty_demo_phone'))"/>
-        <value eval="env['stock.location'].browse(ref('stock.stock_location_stock'))"/>
+        <value model="product.product" eval="obj(ref('product_warranty_demo_phone'))"/>
+        <value model="stock.location" eval="obj(ref('stock.stock_location_stock'))"/>
         <value eval="1"/>
-        <value eval="env['stock.lot'].browse(ref('lot_warranty_demo_exchange_new'))"/>
+        <value name="lot_id" model="stock.lot" eval="obj(ref('lot_warranty_demo_exchange_new'))"/>
     </function>
     <function model="stock.quant" name="_update_available_quantity">
-        <value eval="env['product.product'].browse(ref('product_warranty_demo_phone'))"/>
-        <value eval="env['stock.location'].browse(ref('stock.stock_location_customers'))"/>
+        <value model="product.product" eval="obj(ref('product_warranty_demo_phone'))"/>
+        <value model="stock.location" eval="obj(ref('stock.stock_location_customers'))"/>
         <value eval="1"/>
-        <value eval="env['stock.lot'].browse(ref('lot_warranty_demo_return'))"/>
+        <value name="lot_id" model="stock.lot" eval="obj(ref('lot_warranty_demo_return'))"/>
     </function>
 
     <record id="warranty_ticket_demo_repair" model="warranty.ticket">

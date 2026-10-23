@@ -13,7 +13,7 @@ class TestWarrantyTicket(TransactionCase):
             'name': 'Warranty Test Laptop',
             'is_storable': True,
             'tracking': 'serial',
-            'warranty_period_days': 365,
+            'warranty_period_months': 12,
             'exchange_period_days': 30,
         })
         return template.product_variant_id

@@ -3,24 +3,31 @@ services:
   web:
     image: odoo:18.0
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8069:8069"
     volumes:
       - odoo-web-data:/var/lib/odoo
       - ./custom_addons:/mnt/extra-addons
     environment:
-      - HOST=db
-      - USER=odoo
-      - PASSWORD=myodoo
+      HOST: db
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    command: ["odoo", "--admin-passwd", "${ODOO_MASTER_PASSWORD:?Set ODOO_MASTER_PASSWORD in .env}"]
   db:
     image: postgres:15
     environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_PASSWORD=myodoo
-      - POSTGRES_USER=odoo
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
     volumes:
       - odoo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 volumes:
   odoo-web-data:
   odoo-db-data:

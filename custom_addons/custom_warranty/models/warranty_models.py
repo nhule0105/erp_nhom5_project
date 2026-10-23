@@ -21,10 +21,11 @@ class ProductCategory(models.Model):
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
-    warranty_period_days = fields.Integer(
-        string='Thời hạn bảo hành (ngày)',
+    warranty_period_months = fields.Integer(
+        string='Thời hạn bảo hành (tháng)',
         default=0,
-        help='Để 0 để dùng chính sách mặc định của nhóm sản phẩm.',
+        required=True,
+        help='Số tháng bảo hành tính từ ngày giao hàng. Để 0 để dùng chính sách nhóm sản phẩm (hoặc mặc định 12 tháng).',
     )
     exchange_period_days = fields.Integer(
         string='Thời hạn đổi mới (ngày)',
@@ -32,15 +33,18 @@ class ProductTemplate(models.Model):
         help='Để 0 để dùng chính sách mặc định của nhóm sản phẩm.',
     )
 
-    @api.constrains('warranty_period_days', 'exchange_period_days')
+    @api.constrains('warranty_period_months', 'exchange_period_days')
     def _check_warranty_periods(self):
         for product in self:
-            if product.warranty_period_days < 0 or product.exchange_period_days < 0:
+            if product.warranty_period_months < 0 or product.exchange_period_days < 0:
                 raise ValidationError(_('Thời hạn bảo hành và đổi mới không được âm.'))
 
-    def _get_warranty_period_days(self):
+    def _get_warranty_period_months(self):
         self.ensure_one()
-        return self.warranty_period_days or self.categ_id.warranty_period_days
+        if self.warranty_period_months:
+            return self.warranty_period_months
+        category_days = self.categ_id.warranty_period_days
+        return max(1, round(category_days / 30.4375)) if category_days else 12
 
     def _get_exchange_period_days(self):
         self.ensure_one()
@@ -52,7 +56,7 @@ class StockLot(models.Model):
 
     x_customer_id = fields.Many2one('res.partner', string='Khách hàng')
     x_custom_status = fields.Selection([
-        ('available', 'Sẵn sàng bán'),
+        ('available', 'Trong kho / Sẵn sàng bán'),
         ('sold', 'Đã bán'),
         ('under_repair', 'Đang bảo hành'),
         ('defective', 'Lỗi / Chờ xử lý')
@@ -62,6 +66,43 @@ class StockLot(models.Model):
     x_sale_order_id = fields.Many2one('sale.order', string='Đơn bán')
     x_delivery_picking_id = fields.Many2one('stock.picking', string='Phiếu giao hàng')
     x_sale_date = fields.Date(string='Ngày giao hàng')
+    source_warehouse_location = fields.Char(string='Vị trí kho nguồn')
+
+    def validate_serial_number(self, product_id=False, required_qty=0, serial_numbers=None):
+        """Kiểm tra nghiệp vụ Serial Number trước khi xuất kho."""
+        if serial_numbers is None:
+            serial_numbers = []
+
+        if not isinstance(serial_numbers, (list, tuple, set)):
+            serial_numbers = [serial_numbers]
+
+        serial_list = [str(item).strip() for item in serial_numbers if str(item).strip()]
+        serial_list = list(dict.fromkeys(serial_list))
+
+        if required_qty and len(serial_list) < int(required_qty):
+            raise ValidationError(
+                f'Không đủ S/N để xuất. Cần {required_qty}, đã nhận {len(serial_list)}.'
+            )
+
+        if not product_id:
+            raise ValidationError('Thiếu sản phẩm để kiểm tra S/N.')
+
+        for serial in serial_list:
+            lot = self.search([('name', '=', serial), ('product_id', '=', product_id)])
+            if not lot:
+                raise ValidationError(f'S/N {serial} không tồn tại hoặc không thuộc sản phẩm yêu cầu.')
+
+            qty_available = 0
+            for quant in self.env['stock.quant'].search([
+                ('lot_id', '=', lot.id),
+                ('location_id.usage', '=', 'internal'),
+            ]):
+                qty_available += quant.quantity
+
+            if qty_available <= 0:
+                raise ValidationError(f'S/N {serial} không còn trong kho hoặc đã được xuất.')
+        return True
+        return True
 
 
 class WarrantyTicket(models.Model):
@@ -207,6 +248,9 @@ class WarrantyTicket(models.Model):
         group_expand='_read_group_state',
         string='Trạng thái',
     )
+    source_issue_description = fields.Text(string='Mô tả lỗi từ hệ thống nguồn')
+    source_status = fields.Char(string='Trạng thái bảo hành nguồn')
+    source_end_date = fields.Date(string='Ngày kết thúc từ hệ thống nguồn')
 
     @api.depends('warranty_end_date')
     def _compute_days_remaining(self):

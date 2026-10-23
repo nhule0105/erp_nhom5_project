@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <xpath expr="//page[@name='inventory']" position="inside">
                 <group string="Bảo hành &amp; đổi mới">
-                    <field name="warranty_period_days"/>
+                    <field name="warranty_period_months"/>
                     <field name="exchange_period_days"/>
                 </group>
             </xpath>
@@ -214,6 +214,8 @@
                 <field name="x_customer_id"/>
                 <field name="x_purchase_date"/>
                 <field name="x_warranty_end_date"/>
+                <field name="x_sale_order_id"/>
+                <field name="x_sale_date"/>
             </xpath>
         </field>
     </record>

@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 from odoo.tools import float_compare
@@ -57,7 +55,7 @@ class SaleOrder(models.Model):
             if float_compare(
                 available_quantity,
                 required_quantity,
-                precision_rounding=product.uom_id.rounding,
+                precision_digits=6,
             ) < 0:
                 raise ValidationError(
                     f'Không đủ tồn kho cho {product.display_name}. '
@@ -66,6 +64,16 @@ class SaleOrder(models.Model):
 
             if product.tracking != 'serial':
                 continue
+
+            if float_compare(
+                required_quantity,
+                round(required_quantity),
+                precision_digits=6,
+            ):
+                raise ValidationError(
+                    f'Số lượng {product.display_name} phải là số nguyên vì sản phẩm '
+                    'được theo dõi bằng Serial Number.'
+                )
 
             quants = self.env['stock.quant'].search([
                 ('product_id', '=', product.id),
@@ -136,7 +144,7 @@ class StockPicking(models.Model):
                 if float_compare(
                     done_quantity,
                     required_quantity,
-                    precision_rounding=product.uom_id.rounding,
+                    precision_digits=6,
                 ) != 0:
                     raise ValidationError(
                         f'Phiếu giao cần đủ {required_quantity:g} sản phẩm '
@@ -156,7 +164,7 @@ class StockPicking(models.Model):
                     if float_compare(
                         line.quantity_product_uom,
                         1.0,
-                        precision_rounding=product.uom_id.rounding,
+                        precision_digits=6,
                     ) != 0:
                         raise ValidationError(
                             f'Mỗi S/N của {product.display_name} phải tương ứng '
@@ -178,7 +186,12 @@ class StockPicking(models.Model):
                         ('location_id', 'child_of', move.location_id.id),
                         ('location_id.usage', '=', 'internal'),
                     ])
-                    if sum(source_quants.mapped('quantity')) <= 0:
+                    source_quantity = sum(source_quants.mapped('quantity'))
+                    if float_compare(
+                        source_quantity,
+                        line.quantity_product_uom,
+                        precision_digits=6,
+                    ) < 0:
                         raise ValidationError(
                             f'S/N {lot.name} không còn trong kho xuất.'
                         )
@@ -194,13 +207,17 @@ class StockPicking(models.Model):
             lambda record: record.picking_type_code == 'outgoing'
             and record.sale_id
         ):
-            serials = picking.move_ids.move_line_ids.lot_id
             delivery_date = fields.Date.to_date(
                 picking.date_done or fields.Date.context_today(picking)
             )
-            for serial in serials:
-                warranty_days = (
-                    serial.product_id.product_tmpl_id._get_warranty_period_days()
+            for move_line in picking.move_ids.filtered(
+                lambda move: move.product_id.tracking == 'serial'
+            ).move_line_ids.filtered(lambda line: line.quantity > 0):
+                serial = move_line.lot_id
+                if not serial:
+                    continue
+                warranty_months = (
+                    serial.product_id.product_tmpl_id._get_warranty_period_months()
                 )
                 serial.write({
                     'x_customer_id': picking.sale_id.partner_id.id or picking.partner_id.id,
@@ -209,7 +226,10 @@ class StockPicking(models.Model):
                     'x_delivery_picking_id': picking.id,
                     'x_sale_order_id': picking.sale_id.id,
                     'x_sale_date': delivery_date,
-                    'x_warranty_end_date': delivery_date + timedelta(days=warranty_days),
+                    'x_warranty_end_date': fields.Date.add(
+                        delivery_date,
+                        months=warranty_months,
+                    ),
                 })
         return result
 
