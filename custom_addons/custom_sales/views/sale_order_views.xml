@@ -5,10 +5,85 @@
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after">
+                <field name="x_customer_code" readonly="1"/>
+            </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Serial đã giao" name="delivered_serials">
-                    <field name="serial_lot_ids" widget="many2many_tags"
-                           readonly="1"/>
+                    <div class="alert alert-info" role="alert">
+                        Serial và thông tin bán hàng được ghi nhận sau khi xác nhận phiếu giao.
+                    </div>
+                    <field name="serial_lot_ids" readonly="1">
+                        <list>
+                            <field name="name"/>
+                            <field name="product_id"/>
+                            <field name="x_custom_status" widget="badge"/>
+                            <field name="x_customer_id"/>
+                            <field name="x_purchase_date"/>
+                            <field name="x_warranty_end_date"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_sales_order_list_customer_code" model="ir.ui.view">
+        <field name="name">sale.order.list.customer.code</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.sale_order_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list/field[@name='partner_id']" position="after">
+                <field name="x_customer_code" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_picking_form_sales_serials" model="ir.ui.view">
+        <field name="name">stock.picking.form.sales.serials</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='move_ids_without_package']" position="before">
+                <div class="alert alert-info"
+                     role="alert"
+                     invisible="picking_type_code != 'outgoing'">
+                    Khi giao Laptop, nhập/quét S/N thực tế trong cột S/N hoặc mở chi tiết dòng.
+                    Chỉ xác nhận phiếu sau khi đã quét đủ số lượng.
+                </div>
+            </xpath>
+            <xpath expr="//field[@name='move_ids_without_package']/list/field[@name='lot_ids']"
+                   position="attributes">
+                <attribute name="string">Quét S/N thực tế</attribute>
+                <attribute name="optional">show</attribute>
+                <attribute name="options">{'no_create': True, 'no_quick_create': True}</attribute>
+                <attribute name="domain">[('product_id', '=', product_id), ('x_custom_status', '=', 'available')]</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_partner_form_sales_history" model="ir.ui.view">
+        <field name="name">res.partner.form.sales.history</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Lịch sử mua hàng" name="custom_sales_history">
+                    <field name="x_custom_sale_order_ids"
+                           context="{'default_partner_id': id}"
+                           readonly="1">
+                        <list>
+                            <field name="name"/>
+                            <field name="date_order"/>
+                            <field name="x_customer_code"/>
+                            <field name="user_id" optional="hide"/>
+                            <field name="amount_untaxed" sum="Tạm tính"/>
+                            <field name="amount_tax" sum="Thuế"/>
+                            <field name="amount_total" sum="Tổng cộng"/>
+                            <field name="currency_id" column_invisible="True"/>
+                            <field name="state" widget="badge"/>
+                        </list>
+                    </field>
                 </page>
             </xpath>
         </field>
