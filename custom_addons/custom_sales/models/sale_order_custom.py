@@ -196,7 +196,7 @@ class StockPicking(models.Model):
             and record.sale_id
         ):
             serials = picking.move_ids.move_line_ids.lot_id
-         for serial in serials:
+        for serial in serials:
             warranty_days = serial.product_id.product_tmpl_id.warranty_period_days or 0
             serial.write({
                 'x_customer_id': picking.sale_id.partner_id.id or picking.partner_id.id,
