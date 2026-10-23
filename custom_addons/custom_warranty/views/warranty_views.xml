@@ -13,6 +13,17 @@
             </xpath>
         </field>
     </record>
+    <record id="view_product_category_form_warranty" model="ir.ui.view">
+        <field name="name">product.category.form.warranty.policy</field>
+        <field name="model">product.category</field>
+        <field name="inherit_id" ref="product.product_category_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='parent_id']" position="after">
+                <field name="warranty_period_days"/>
+                <field name="exchange_period_days"/>
+            </xpath>
+        </field>
+    </record>
 
     <record id="view_warranty_ticket_form" model="ir.ui.view">
         <field name="name">warranty.ticket.form</field>
@@ -31,6 +42,9 @@
                     <button name="action_approve_exchange" type="object" string="Duyệt đổi mới 1-1"
                             class="oe_highlight" groups="stock.group_stock_manager"
                             invisible="ticket_type != 'exchange' or state != 'new'"/>
+                    <button name="action_approve_return" type="object" string="Duyệt trả hàng"
+                            class="oe_highlight" groups="stock.group_stock_manager"
+                            invisible="ticket_type != 'return' or state != 'new'"/>
                     <field name="state" widget="statusbar" statusbar_visible="new,fixing,waiting_parts,done"/>
                 </header>
                 <sheet>
@@ -44,6 +58,8 @@
                             <field name="serial_id"/>
                             <field name="partner_id"/>
                             <field name="product_id"/>
+                            <field name="sale_order_id"/>
+                            <field name="delivery_picking_id"/>
                             <field name="purchase_date"/>
                         </group>
                         <group>
@@ -84,6 +100,18 @@
                                 Chỉ quản lý kho được duyệt. Khi duyệt, serial lỗi được chuyển tới vị trí hàng lỗi,
                                 serial thay thế được xuất cho khách và giữ nguyên hạn bảo hành cũ.
                             </div>
+                        </page>
+                        <page string="Trả hàng" invisible="ticket_type != 'return'">
+                            <div class="text-muted">
+                                Chỉ quản lý kho được duyệt. Hệ thống chỉ nhập lại serial vào kho,
+                                không tạo hoàn tiền hoặc nghiệp vụ kế toán.
+                            </div>
+                        </page>
+                        <page string="Giao dịch kho" invisible="not exchange_move_ids">
+                            <field name="exchange_move_ids" readonly="1" options="{'no_create': True}"/>
+                        </page>
+                        <page string="Giao dịch trả hàng" invisible="not return_move_ids">
+                            <field name="return_move_ids" readonly="1" options="{'no_create': True}"/>
                         </page>
                     </notebook>
                 </sheet>
@@ -156,6 +184,7 @@
                 <field name="issue_category"/>
                 <filter name="repairs" string="Sửa chữa" domain="[('ticket_type', '=', 'repair')]"/>
                 <filter name="exchanges" string="Đổi mới" domain="[('ticket_type', '=', 'exchange')]"/>
+                <filter name="returns" string="Trả hàng" domain="[('ticket_type', '=', 'return')]"/>
                 <filter name="open" string="Chưa hoàn tất" domain="[('state', '!=', 'done')]"/>
                 <filter name="expired" string="Hết hạn bảo hành"
                         domain="[('warranty_end_date', '&lt;', context_today().strftime('%Y-%m-%d'))]"/>
@@ -169,7 +198,7 @@
     </record>
 
     <record id="action_warranty_ticket" model="ir.actions.act_window">
-        <field name="name">Phiếu Hậu Mãi &amp; Đổi Trả</field>
+        <field name="name">Phiếu Bảo Hành &amp; Đổi Trả</field>
         <field name="res_model">warranty.ticket</field>
         <field name="view_mode">kanban,list,form</field>
         <field name="search_view_id" ref="view_warranty_ticket_search"/>

@@ -3,20 +3,33 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools.float_utils import float_compare
 
 
+class ProductCategory(models.Model):
+    _inherit = 'product.category'
+
+    warranty_period_days = fields.Integer(
+        string='Bảo hành mặc định (ngày)',
+        default=0,
+        help='Để 0 nếu từng sản phẩm tự cấu hình thời hạn.',
+    )
+    exchange_period_days = fields.Integer(
+        string='Đổi hàng mặc định (ngày)',
+        default=0,
+        help='Để 0 nếu từng sản phẩm tự cấu hình thời hạn.',
+    )
+
+
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     warranty_period_days = fields.Integer(
         string='Thời hạn bảo hành (ngày)',
-        default=365,
-        required=True,
-        help='Số ngày bảo hành tính từ ngày giao hàng. Có thể đặt 30 ngày cho hàng cũ.',
+        default=0,
+        help='Để 0 để dùng chính sách mặc định của nhóm sản phẩm.',
     )
     exchange_period_days = fields.Integer(
         string='Thời hạn đổi mới (ngày)',
-        default=30,
-        required=True,
-        help='Số ngày tối đa để xét đổi mới 1-1 cho sản phẩm này.',
+        default=0,
+        help='Để 0 để dùng chính sách mặc định của nhóm sản phẩm.',
     )
 
     @api.constrains('warranty_period_days', 'exchange_period_days')
@@ -24,6 +37,14 @@ class ProductTemplate(models.Model):
         for product in self:
             if product.warranty_period_days < 0 or product.exchange_period_days < 0:
                 raise ValidationError(_('Thời hạn bảo hành và đổi mới không được âm.'))
+
+    def _get_warranty_period_days(self):
+        self.ensure_one()
+        return self.warranty_period_days or self.categ_id.warranty_period_days
+
+    def _get_exchange_period_days(self):
+        self.ensure_one()
+        return self.exchange_period_days or self.categ_id.exchange_period_days
 
 
 class StockLot(models.Model):
@@ -38,11 +59,14 @@ class StockLot(models.Model):
     ], string='Trạng thái thiết bị', default='available')
     x_purchase_date = fields.Date(string='Ngày mua hàng')
     x_warranty_end_date = fields.Date(string='Ngày hết hạn bảo hành')
+    x_sale_order_id = fields.Many2one('sale.order', string='Đơn bán')
+    x_delivery_picking_id = fields.Many2one('stock.picking', string='Phiếu giao hàng')
+    x_sale_date = fields.Date(string='Ngày giao hàng')
 
 
 class WarrantyTicket(models.Model):
     _name = 'warranty.ticket'
-    _description = 'Phiếu Hậu mãi và Đổi trả'
+    _description = 'Phiếu Bảo hành và Đổi trả'
     _rec_name = 'ticket_code'
     _order = 'receive_date desc, id desc'
 
@@ -67,6 +91,18 @@ class WarrantyTicket(models.Model):
         string='S/N đổi mới',
         copy=False,
         domain="[('x_custom_status', '=', 'available'), ('product_id', '=', product_id)]",
+    )
+    sale_order_id = fields.Many2one(
+        'sale.order',
+        string='Đơn bán',
+        related='serial_id.x_sale_order_id',
+        readonly=True,
+    )
+    delivery_picking_id = fields.Many2one(
+        'stock.picking',
+        string='Phiếu giao hàng',
+        related='serial_id.x_delivery_picking_id',
+        readonly=True,
     )
     partner_id = fields.Many2one(
         'res.partner',
@@ -106,16 +142,34 @@ class WarrantyTicket(models.Model):
         compute='_compute_days_remaining',
     )
     issue_category = fields.Selection(
-        [('nsx', 'Lỗi nhà sản xuất'), ('user', 'Lỗi người dùng')],
+        [
+            ('nsx', 'Lỗi nhà sản xuất'),
+            ('user', 'Lỗi người dùng'),
+            ('unknown', 'Chưa xác định'),
+        ],
         string='Nguyên nhân',
         required=True,
         default='nsx',
     )
     ticket_type = fields.Selection(
-        [('repair', 'Sửa chữa / Bảo hành'), ('exchange', 'Đổi mới 1-1')],
+        [
+            ('repair', 'Sửa chữa / Bảo hành'),
+            ('exchange', 'Đổi hàng 1-1'),
+            ('return', 'Trả hàng'),
+        ],
         string='Loại xử lý',
         required=True,
         default='repair',
+    )
+    warranty_decision = fields.Selection(
+        [
+            ('pending', 'Chờ xác minh'),
+            ('free', 'Miễn phí'),
+            ('paid', 'Tính phí'),
+        ],
+        string='Điều kiện bảo hành',
+        default='pending',
+        required=True,
     )
     appearance_ok = fields.Boolean(string='Ngoại quan đạt điều kiện đổi mới')
     no_liquid_damage = fields.Boolean(string='Không có dấu hiệu vào nước / chập cháy')
@@ -123,6 +177,24 @@ class WarrantyTicket(models.Model):
     condition_notes = fields.Text(string='Tình trạng ngoại quan')
     fault_description = fields.Text(string='Mô tả lỗi kỹ thuật')
     repair_resolution = fields.Text(string='Kết quả xử lý')
+    exchange_move_ids = fields.Many2many(
+        'stock.move',
+        'warranty_ticket_stock_move_rel',
+        'ticket_id',
+        'move_id',
+        string='Giao dịch kho đổi trả',
+        readonly=True,
+        copy=False,
+    )
+    return_move_ids = fields.Many2many(
+        'stock.move',
+        'warranty_ticket_return_move_rel',
+        'ticket_id',
+        'move_id',
+        string='Giao dịch kho trả hàng',
+        readonly=True,
+        copy=False,
+    )
     state = fields.Selection(
         [
             ('new', 'Mới tiếp nhận'),
@@ -212,7 +284,7 @@ class WarrantyTicket(models.Model):
                 ('state', '!=', 'done'),
             ])
             if duplicate:
-                raise ValidationError(_('Serial này đã có một phiếu hậu mãi chưa hoàn tất.'))
+                raise ValidationError(_('Serial này đã có một phiếu bảo hành hoặc đổi trả chưa hoàn tất.'))
 
     def write(self, vals):
         target_state = vals.get('state')
@@ -230,6 +302,9 @@ class WarrantyTicket(models.Model):
                 if target_state == 'done' and ticket.ticket_type == 'exchange':
                     if not self.env.context.get('exchange_approval'):
                         raise UserError(_('Phiếu đổi mới chỉ được hoàn tất bằng thao tác duyệt đổi.'))
+                elif target_state == 'done' and ticket.ticket_type == 'return':
+                    if not self.env.context.get('return_approval'):
+                        raise UserError(_('Phiếu trả hàng chỉ được hoàn tất bằng thao tác duyệt trả hàng.'))
                 elif target_state == 'done':
                     if ticket.state not in ('fixing', 'waiting_parts'):
                         raise UserError(_('Phiếu sửa chữa phải đang xử lý mới có thể hoàn tất.'))
@@ -282,6 +357,8 @@ class WarrantyTicket(models.Model):
         return self.env['stock.location']
 
     def _create_exchange_moves(self, old_sn, new_sn):
+        if self.exchange_move_ids or self.return_move_ids:
+            raise UserError(_('Phiếu đổi trả này đã có giao dịch kho; không được tạo trùng.'))
         customer_location = self.env.ref('stock.stock_location_customers')
         loss_location = self.env['stock.location'].search([
             ('usage', '=', 'inventory'),
@@ -331,6 +408,43 @@ class WarrantyTicket(models.Model):
         moves._action_done()
         if any(move.state != 'done' for move in moves):
             raise UserError(_('Không thể hoàn tất dịch chuyển serial trong kho.'))
+        return moves
+
+    def _create_return_move(self, old_sn):
+        if self.return_move_ids or self.exchange_move_ids:
+            raise UserError(_('Phiếu trả hàng này đã có giao dịch kho; không được tạo trùng.'))
+        warehouse = self.env['stock.warehouse'].search([
+            ('company_id', '=', self.env.company.id),
+        ], limit=1)
+        customer_location = self.env.ref('stock.stock_location_customers')
+        if not warehouse or not warehouse.lot_stock_id:
+            raise UserError(_('Không tìm thấy kho nội bộ để nhập lại sản phẩm trả.'))
+        source = self._get_lot_location(old_sn, 'customer', available=True)
+        if not source:
+            raise ValidationError(_('Không tìm thấy serial trả hàng tại vị trí Khách hàng.'))
+        move = self.env['stock.move'].create({
+            'name': _('Trả hàng: %s') % self.ticket_code,
+            'product_id': old_sn.product_id.id,
+            'product_uom_qty': 1,
+            'product_uom': old_sn.product_id.uom_id.id,
+            'location_id': source.id,
+            'location_dest_id': warehouse.lot_stock_id.id,
+            'company_id': self.env.company.id,
+        })
+        self.env['stock.move.line'].create({
+            'move_id': move.id,
+            'product_id': old_sn.product_id.id,
+            'product_uom_id': old_sn.product_id.uom_id.id,
+            'location_id': source.id,
+            'location_dest_id': warehouse.lot_stock_id.id,
+            'lot_id': old_sn.id,
+            'quantity': 1,
+            'picked': True,
+        })
+        move._action_done()
+        if move.state != 'done':
+            raise UserError(_('Không thể hoàn tất nhập kho sản phẩm trả.'))
+        return move
 
     def action_start_repair(self):
         for ticket in self:
@@ -350,7 +464,7 @@ class WarrantyTicket(models.Model):
         for ticket in self:
             if not ticket.repair_resolution:
                 raise ValidationError(_('Hãy ghi nhận kết quả sửa chữa trước khi hoàn tất phiếu.'))
-            ticket.write({
+            ticket.with_context(return_approval=True).write({
                 'state': 'done',
                 'completed_date': fields.Date.context_today(ticket),
             })
@@ -380,7 +494,7 @@ class WarrantyTicket(models.Model):
                 raise ValidationError(
                     _('Chưa đạt kiểm tra ngoại quan, dấu hiệu vào nước/chập cháy hoặc bảo mật thiết bị.')
                 )
-            exchange_days = old_sn.product_id.product_tmpl_id.exchange_period_days
+            exchange_days = old_sn.product_id.product_tmpl_id._get_exchange_period_days()
             days_since_purchase = (
                 fields.Date.context_today(ticket) - old_sn.x_purchase_date
             ).days
@@ -390,7 +504,7 @@ class WarrantyTicket(models.Model):
                     % exchange_days
                 )
 
-            ticket._create_exchange_moves(old_sn, new_sn)
+            exchange_moves = ticket._create_exchange_moves(old_sn, new_sn)
             old_sn.write({'x_custom_status': 'defective'})
             new_sn.write({
                 'x_custom_status': 'sold',
@@ -399,6 +513,32 @@ class WarrantyTicket(models.Model):
                 'x_warranty_end_date': old_sn.x_warranty_end_date,
             })
             ticket.with_context(exchange_approval=True).write({
+                'exchange_move_ids': [(6, 0, exchange_moves.ids)],
+                'state': 'done',
+                'completed_date': fields.Date.context_today(ticket),
+            })
+
+    def action_approve_return(self):
+        self._check_manager()
+        for ticket in self:
+            if ticket.ticket_type != 'return':
+                raise UserError(_('Chỉ phiếu có loại xử lý Trả hàng mới được duyệt.'))
+            if ticket.state != 'new':
+                raise UserError(_('Chỉ phiếu mới tiếp nhận mới được duyệt trả hàng.'))
+            old_sn = ticket.serial_id
+            if not old_sn or old_sn.x_custom_status != 'sold':
+                raise ValidationError(_('Serial trả hàng phải đang thuộc khách hàng.'))
+            if not old_sn.x_customer_id or not old_sn.x_purchase_date:
+                raise ValidationError(_('Serial trả hàng chưa đủ thông tin khách hàng/ngày giao.'))
+            if ticket.issue_category == 'unknown':
+                raise ValidationError(_('Cần xác định nguyên nhân trước khi duyệt trả hàng.'))
+            return_move = ticket._create_return_move(old_sn)
+            old_sn.write({
+                'x_custom_status': 'available',
+                'x_customer_id': False,
+            })
+            ticket.with_context(return_approval=True).write({
+                'return_move_ids': [(6, 0, return_move.ids)],
                 'state': 'done',
                 'completed_date': fields.Date.context_today(ticket),
             })
