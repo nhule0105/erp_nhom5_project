@@ -1,16 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Giao diện Form Phiếu Bảo Hành -->
+    <record id="view_product_template_form_warranty" model="ir.ui.view">
+        <field name="name">product.template.form.warranty.periods</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_only_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='inventory']" position="inside">
+                <group string="Bảo hành &amp; đổi mới">
+                    <field name="warranty_period_days"/>
+                    <field name="exchange_period_days"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
     <record id="view_warranty_ticket_form" model="ir.ui.view">
         <field name="name">warranty.ticket.form</field>
         <field name="model">warranty.ticket</field>
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <!-- Đã xóa đuôi invisible để ép nút luôn hiện -->
-                    <button name="action_approve_exchange" type="object" string="DUYỆT ĐỔI TRẢ 1-1" class="oe_highlight"/>
-                    
-                    <field name="state" widget="statusbar" statusbar_visible="new,fixing,done"/>
+                    <button name="action_start_repair" type="object" string="Bắt đầu sửa" class="oe_highlight"
+                            invisible="ticket_type != 'repair' or state != 'new'"/>
+                    <button name="action_waiting_parts" type="object" string="Chờ linh kiện"
+                            invisible="ticket_type != 'repair' or state != 'fixing'"/>
+                    <button name="action_resume_repair" type="object" string="Tiếp tục sửa"
+                            invisible="ticket_type != 'repair' or state != 'waiting_parts'"/>
+                    <button name="action_complete_repair" type="object" string="Hoàn tất sửa chữa"
+                            invisible="ticket_type != 'repair' or state not in ['fixing', 'waiting_parts']"/>
+                    <button name="action_approve_exchange" type="object" string="Duyệt đổi mới 1-1"
+                            class="oe_highlight" groups="stock.group_stock_manager"
+                            invisible="ticket_type != 'exchange' or state != 'new'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="new,fixing,waiting_parts,done"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
@@ -18,49 +39,147 @@
                     </div>
                     <group>
                         <group>
+                            <field name="ticket_type"/>
+                            <field name="customer_phone"/>
                             <field name="serial_id"/>
-                            <field name="new_serial_id" invisible="ticket_type != 'exchange'"/>
+                            <field name="partner_id"/>
+                            <field name="product_id"/>
+                            <field name="purchase_date"/>
                         </group>
                         <group>
                             <field name="receive_date"/>
+                            <field name="warranty_end_date"/>
+                            <field name="days_remaining"/>
+                            <field name="warranty_status"/>
                             <field name="issue_category"/>
-                            <field name="ticket_type"/>
+                            <field name="completed_date" invisible="state != 'done'"/>
                         </group>
                     </group>
+                    <notebook>
+                        <page string="Kiểm tra &amp; mô tả lỗi">
+                            <group>
+                                <group>
+                                    <field name="appearance_ok"/>
+                                    <field name="no_liquid_damage"/>
+                                    <field name="security_cleared"/>
+                                </group>
+                                <group>
+                                    <field name="condition_notes"/>
+                                    <field name="fault_description"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Sửa chữa" invisible="ticket_type != 'repair'">
+                            <field name="repair_resolution"
+                                   placeholder="Ghi rõ thao tác sửa chữa và kết quả kiểm tra..."/>
+                        </page>
+                        <page string="Đổi mới 1-1" invisible="ticket_type != 'exchange'">
+                            <group>
+                                <field name="new_serial_id"/>
+                                <field name="appearance_ok"/>
+                                <field name="no_liquid_damage"/>
+                                <field name="security_cleared"/>
+                            </group>
+                            <div class="text-muted">
+                                Chỉ quản lý kho được duyệt. Khi duyệt, serial lỗi được chuyển tới vị trí hàng lỗi,
+                                serial thay thế được xuất cho khách và giữ nguyên hạn bảo hành cũ.
+                            </div>
+                        </page>
+                    </notebook>
                 </sheet>
             </form>
         </field>
     </record>
 
-    <!-- Giao diện danh sách (Tree/List) -->
+    <record id="view_warranty_ticket_kanban" model="ir.ui.view">
+        <field name="name">warranty.ticket.kanban</field>
+        <field name="model">warranty.ticket</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="state" class="o_kanban_small_column">
+                <field name="ticket_code"/>
+                <field name="ticket_type"/>
+                <field name="serial_id"/>
+                <field name="partner_id"/>
+                <field name="product_id"/>
+                <field name="issue_category"/>
+                <field name="receive_date"/>
+                <field name="state"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click">
+                            <div class="o_kanban_record_top">
+                                <strong><field name="ticket_code"/></strong>
+                                <span class="float-end"><field name="ticket_type"/></span>
+                            </div>
+                            <div><field name="serial_id"/></div>
+                            <div><field name="partner_id"/></div>
+                            <div><field name="product_id"/></div>
+                            <div class="text-muted">
+                                <field name="issue_category"/> · <field name="receive_date"/>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
     <record id="view_warranty_ticket_tree" model="ir.ui.view">
         <field name="name">warranty.ticket.list</field>
         <field name="model">warranty.ticket</field>
         <field name="arch" type="xml">
             <list>
                 <field name="ticket_code"/>
+                <field name="receive_date"/>
+                <field name="partner_id"/>
                 <field name="serial_id"/>
+                <field name="product_id"/>
                 <field name="ticket_type"/>
+                <field name="issue_category"/>
+                <field name="days_remaining"/>
+                <field name="warranty_status"/>
                 <field name="state"/>
             </list>
         </field>
     </record>
 
-    <!-- Định nghĩa Action khi bấm vào Menu -->
-    <record id="action_warranty_ticket" model="ir.actions.act_window">
-        <field name="name">Phiếu Hậu Mãi</field>
-        <field name="res_model">warranty.ticket</field>
-        <field name="view_mode">list,form</field> <!-- CHỈ CẦN ĐỔI CHỮ TREE THÀNH LIST Ở ĐÂY -->
+    <record id="view_warranty_ticket_search" model="ir.ui.view">
+        <field name="name">warranty.ticket.search</field>
+        <field name="model">warranty.ticket</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="ticket_code"/>
+                <field name="serial_id"/>
+                <field name="partner_id"/>
+                <field name="customer_phone"/>
+                <field name="ticket_type"/>
+                <field name="issue_category"/>
+                <filter name="repairs" string="Sửa chữa" domain="[('ticket_type', '=', 'repair')]"/>
+                <filter name="exchanges" string="Đổi mới" domain="[('ticket_type', '=', 'exchange')]"/>
+                <filter name="open" string="Chưa hoàn tất" domain="[('state', '!=', 'done')]"/>
+                <filter name="expired" string="Hết hạn bảo hành"
+                        domain="[('warranty_end_date', '&lt;', context_today().strftime('%Y-%m-%d'))]"/>
+                <group expand="0" string="Nhóm theo">
+                    <filter name="group_state" string="Trạng thái" context="{'group_by': 'state'}"/>
+                    <filter name="group_type" string="Loại xử lý" context="{'group_by': 'ticket_type'}"/>
+                    <filter name="group_partner" string="Khách hàng" context="{'group_by': 'partner_id'}"/>
+                </group>
+            </search>
+        </field>
     </record>
 
-    <!-- Kế thừa giao diện gốc của bảng mã S/N để hiện các trường Bảo hành -->
+    <record id="action_warranty_ticket" model="ir.actions.act_window">
+        <field name="name">Phiếu Hậu Mãi &amp; Đổi Trả</field>
+        <field name="res_model">warranty.ticket</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_warranty_ticket_search"/>
+    </record>
+
     <record id="view_lot_form_inherit_warranty" model="ir.ui.view">
         <field name="name">stock.lot.form.inherit.warranty</field>
         <field name="model">stock.lot</field>
-        <!-- ĐÃ ĐỔI TÊN Ở DÒNG NÀY: -->
-        <field name="inherit_id" ref="stock.view_production_lot_form"/> 
+        <field name="inherit_id" ref="stock.view_production_lot_form"/>
         <field name="arch" type="xml">
-            <!-- Nhét các trường tùy chỉnh vào ngay bên dưới trường product_id (Sản phẩm) -->
             <xpath expr="//field[@name='product_id']" position="after">
                 <field name="x_custom_status"/>
                 <field name="x_customer_id"/>

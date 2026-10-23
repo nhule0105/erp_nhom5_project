@@ -1,10 +1,12 @@
 {
-    'name': 'Custom Warranty - Đổi trả 1-1',
-    'version': '1.0',
-    'summary': 'Quản lý phiếu bảo hành và thuật toán đổi trả 1-1 cho thiết bị',
+    'name': 'Quản lý Bảo hành & Đổi trả',
+    'version': '18.0.1.0.0',
+    'summary': 'Tiếp nhận sửa chữa, theo dõi bảo hành và xử lý đổi máy 1-1',
     'author': 'Nhóm 5',
-    'depends': ['stock'], # Kế thừa ứng dụng Kho vận
+    'license': 'LGPL-3',
+    'depends': ['stock'],
     'data': [
+        'data/warranty_sequence.xml',
         'security/ir.model.access.csv',
         'views/warranty_views.xml',
         'views/warranty_menus.xml',
