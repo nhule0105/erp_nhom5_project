@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <data noupdate="1">
     <record id="partner_warranty_demo_anh" model="res.partner">
         <field name="name">Nguyễn Minh Anh</field>
         <field name="phone">0901002001</field>
@@ -66,6 +67,33 @@
         <field name="product_id" ref="product_warranty_demo_phone"/>
         <field name="x_custom_status">available</field>
     </record>
+    <record id="lot_warranty_demo_return" model="stock.lot">
+        <field name="name">DEMO-PHN-0004</field>
+        <field name="product_id" ref="product_warranty_demo_phone"/>
+        <field name="x_customer_id" ref="partner_warranty_demo_binh"/>
+        <field name="x_custom_status">sold</field>
+        <field name="x_purchase_date" eval="(datetime.now() - timedelta(days=6)).strftime('%Y-%m-%d')"/>
+        <field name="x_warranty_end_date" eval="(datetime.now() + timedelta(days=359)).strftime('%Y-%m-%d')"/>
+    </record>
+
+    <function model="stock.quant" name="_update_available_quantity">
+        <value eval="env['product.product'].browse(ref('product_warranty_demo_phone'))"/>
+        <value eval="env['stock.location'].browse(ref('stock.stock_location_customers'))"/>
+        <value eval="1"/>
+        <value eval="env['stock.lot'].browse(ref('lot_warranty_demo_exchange_old'))"/>
+    </function>
+    <function model="stock.quant" name="_update_available_quantity">
+        <value eval="env['product.product'].browse(ref('product_warranty_demo_phone'))"/>
+        <value eval="env['stock.location'].browse(ref('stock.stock_location_stock'))"/>
+        <value eval="1"/>
+        <value eval="env['stock.lot'].browse(ref('lot_warranty_demo_exchange_new'))"/>
+    </function>
+    <function model="stock.quant" name="_update_available_quantity">
+        <value eval="env['product.product'].browse(ref('product_warranty_demo_phone'))"/>
+        <value eval="env['stock.location'].browse(ref('stock.stock_location_customers'))"/>
+        <value eval="1"/>
+        <value eval="env['stock.lot'].browse(ref('lot_warranty_demo_return'))"/>
+    </function>
 
     <record id="warranty_ticket_demo_repair" model="warranty.ticket">
         <field name="receive_date" eval="(datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')"/>
@@ -108,4 +136,14 @@
         <field name="fault_description">Màn hình có điểm sáng và nhấp nháy.</field>
         <field name="state">new</field>
     </record>
+    <record id="warranty_ticket_demo_return" model="warranty.ticket">
+        <field name="receive_date" eval="(datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')"/>
+        <field name="serial_id" ref="lot_warranty_demo_return"/>
+        <field name="ticket_type">return</field>
+        <field name="issue_category">user</field>
+        <field name="condition_notes">Khách trả lại sản phẩm, không yêu cầu hoàn tiền trong demo.</field>
+        <field name="fault_description">Không phù hợp nhu cầu sử dụng.</field>
+        <field name="state">new</field>
+    </record>
+    </data>
 </odoo>

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from odoo import fields
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
 
 
@@ -131,6 +131,18 @@ class TestWarrantyTicket(TransactionCase):
         ])
         self.assertEqual(sum(old_loss_quants.mapped('quantity')), 1)
         self.assertEqual(sum(new_customer_quants.mapped('quantity')), 1)
+        self.assertEqual(ticket.exchange_move_ids, old_move | new_move)
+        move_count = self.env['stock.move'].search_count([
+            ('move_line_ids.lot_id', 'in', [old_lot.id, new_lot.id]),
+        ])
+        with self.assertRaises(UserError):
+            ticket.action_approve_exchange()
+        self.assertEqual(
+            self.env['stock.move'].search_count([
+                ('move_line_ids.lot_id', 'in', [old_lot.id, new_lot.id]),
+            ]),
+            move_count,
+        )
 
     def test_exchange_rejects_expired_exchange_window(self):
         product = self._create_product()
@@ -160,3 +172,39 @@ class TestWarrantyTicket(TransactionCase):
         self.assertEqual(ticket.state, 'new')
         self.assertEqual(old_lot.x_custom_status, 'sold')
         self.assertEqual(new_lot.x_custom_status, 'available')
+
+    def test_return_moves_serial_back_to_internal_stock(self):
+        product = self._create_product()
+        partner = self.env['res.partner'].create({'name': 'Return Customer'})
+        lot = self._create_lot(
+            product,
+            'RETURN-001',
+            x_customer_id=partner.id,
+            x_custom_status='sold',
+            x_purchase_date=fields.Date.today() - timedelta(days=5),
+            x_warranty_end_date=fields.Date.today() + timedelta(days=360),
+        )
+        customer_location = self.env.ref('stock.stock_location_customers')
+        internal_location = self.env.ref('stock.stock_location_stock')
+        self.env['stock.quant']._update_available_quantity(
+            product, customer_location, 1, lot_id=lot,
+        )
+        ticket = self.env['warranty.ticket'].create({
+            'serial_id': lot.id,
+            'ticket_type': 'return',
+            'issue_category': 'user',
+        })
+
+        ticket.action_approve_return()
+
+        self.assertEqual(ticket.state, 'done')
+        self.assertTrue(ticket.return_move_ids)
+        self.assertEqual(lot.x_custom_status, 'available')
+        self.assertFalse(lot.x_customer_id)
+        self.assertEqual(
+            sum(self.env['stock.quant'].search([
+                ('lot_id', '=', lot.id),
+                ('location_id', '=', internal_location.id),
+            ]).mapped('quantity')),
+            1,
+        )

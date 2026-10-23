@@ -37,6 +37,27 @@ Các module tùy chỉnh cho Odoo 18 nằm trong `custom_addons/`:
    sản phẩm còn tồn kho nội bộ. Hệ thống ghi nhận các phiếu dịch chuyển kho,
    chuyển máy lỗi sang vị trí hàng lỗi, giao máy mới cho khách và giữ nguyên
    ngày bán/hạn bảo hành ban đầu.
+6. Luồng **Trả hàng** độc lập chỉ nhập lại serial từ vị trí Khách hàng về kho
+   nội bộ. Module không tạo hoàn tiền, hóa đơn điều chỉnh hoặc nghiệp vụ kế
+   toán. Chính sách thời hạn đang cấu hình theo từng sản phẩm; không nên coi
+   con số demo là chính sách áp dụng chung. Có thể đặt thời hạn mặc định ở
+   **Nhóm sản phẩm**; nếu sản phẩm có cấu hình riêng thì cấu hình sản phẩm
+   được ưu tiên.
+
+## Nạp dữ liệu demo an toàn
+
+Dữ liệu trong `custom_warranty/demo/` chỉ được nạp khi cài module với tùy chọn
+**Load demonstration data**. Bộ demo có sẵn tồn kho 1 chiếc cho serial cũ ở
+vị trí **Khách hàng** và serial mới ở vị trí **Kho nội bộ**, nên quản lý kho
+có thể thử nút **Duyệt đổi mới 1-1**. Sau khi duyệt, hai giao dịch hoàn tất
+được hiển thị ngay trên tab **Giao dịch kho** của phiếu.
+
+Không bật dữ liệu demo hoặc chạy lại seed trên database production hiện tại.
+Để thử an toàn, hãy dùng bản sao database thử nghiệm, bật **Load demonstration
+data** khi cài `custom_warranty`, rồi kiểm tra các phiếu có mã bắt đầu bằng
+`HM/`. Bộ demo có riêng phiếu đổi hàng 1:1 và phiếu trả hàng. Tài khoản thử
+các nút duyệt phải thuộc nhóm **Inventory / Administrator**
+(`stock.group_stock_manager`); không cần cấp quyền quản trị hệ thống.
 
 ## Cấu trúc chính
 
