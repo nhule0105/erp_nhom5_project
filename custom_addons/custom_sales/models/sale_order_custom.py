@@ -31,17 +31,17 @@ class StockPicking(models.Model):
     def _action_done(self):
         result = super()._action_done()
         purchase_date = fields.Date.context_today(self)
-        warranty_end_date = purchase_date + timedelta(days=30)
         for picking in self.filtered(
             lambda record: record.picking_type_code == 'outgoing'
             and record.sale_id
         ):
             serials = picking.move_ids.move_line_ids.lot_id
-            if serials:
-                serials.write({
+            for serial in serials:
+                warranty_days = serial.product_id.product_tmpl_id.warranty_period_days
+                serial.write({
                     'x_customer_id': picking.partner_id.id,
                     'x_custom_status': 'sold',
                     'x_purchase_date': purchase_date,
-                    'x_warranty_end_date': warranty_end_date,
+                    'x_warranty_end_date': purchase_date + timedelta(days=warranty_days),
                 })
         return result
