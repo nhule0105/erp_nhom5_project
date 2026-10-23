@@ -42,7 +42,7 @@ class StockLot(models.Model):
 
 class WarrantyTicket(models.Model):
     _name = 'warranty.ticket'
-    _description = 'Phiếu Hậu mãi và Đổi trả'
+    _description = 'Phiếu Bảo hành và Đổi trả'
     _rec_name = 'ticket_code'
     _order = 'receive_date desc, id desc'
 
@@ -212,7 +212,7 @@ class WarrantyTicket(models.Model):
                 ('state', '!=', 'done'),
             ])
             if duplicate:
-                raise ValidationError(_('Serial này đã có một phiếu hậu mãi chưa hoàn tất.'))
+                raise ValidationError(_('Serial này đã có một phiếu bảo hành hoặc đổi trả chưa hoàn tất.'))
 
     def write(self, vals):
         target_state = vals.get('state')

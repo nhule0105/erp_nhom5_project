@@ -11,6 +11,9 @@
         'views/warranty_views.xml',
         'views/warranty_menus.xml',
     ],
+    'demo': [
+        'demo/warranty_demo.xml',
+    ],
     'installable': True,
     'application': True,
 }

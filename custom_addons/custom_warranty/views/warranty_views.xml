@@ -169,7 +169,7 @@
     </record>
 
     <record id="action_warranty_ticket" model="ir.actions.act_window">
-        <field name="name">Phiếu Hậu Mãi &amp; Đổi Trả</field>
+        <field name="name">Phiếu Bảo Hành &amp; Đổi Trả</field>
         <field name="res_model">warranty.ticket</field>
         <field name="view_mode">kanban,list,form</field>
         <field name="search_view_id" ref="view_warranty_ticket_search"/>

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="partner_warranty_demo_anh" model="res.partner">
+        <field name="name">Nguyễn Minh Anh</field>
+        <field name="phone">0901002001</field>
+        <field name="email">minhanh@example.com</field>
+    </record>
+    <record id="partner_warranty_demo_binh" model="res.partner">
+        <field name="name">Trần Quốc Bình</field>
+        <field name="phone">0901002002</field>
+        <field name="email">quocbinh@example.com</field>
+    </record>
+    <record id="partner_warranty_demo_chi" model="res.partner">
+        <field name="name">Lê Ngọc Chi</field>
+        <field name="phone">0901002003</field>
+        <field name="email">ngocchi@example.com</field>
+    </record>
+
+    <record id="product_warranty_demo_laptop" model="product.product">
+        <field name="name">Laptop Demo Pro 14</field>
+        <field name="is_storable">True</field>
+        <field name="warranty_period_days">365</field>
+        <field name="exchange_period_days">30</field>
+    </record>
+    <record id="product_warranty_demo_phone" model="product.product">
+        <field name="name">Điện thoại Demo X</field>
+        <field name="is_storable">True</field>
+        <field name="warranty_period_days">365</field>
+        <field name="exchange_period_days">30</field>
+    </record>
+
+    <record id="lot_warranty_demo_repair" model="stock.lot">
+        <field name="name">DEMO-LAP-0001</field>
+        <field name="product_id" ref="product_warranty_demo_laptop"/>
+        <field name="x_customer_id" ref="partner_warranty_demo_anh"/>
+        <field name="x_custom_status">under_repair</field>
+        <field name="x_purchase_date" eval="(datetime.now() - timedelta(days=45)).strftime('%Y-%m-%d')"/>
+        <field name="x_warranty_end_date" eval="(datetime.now() + timedelta(days=320)).strftime('%Y-%m-%d')"/>
+    </record>
+    <record id="lot_warranty_demo_parts" model="stock.lot">
+        <field name="name">DEMO-LAP-0002</field>
+        <field name="product_id" ref="product_warranty_demo_laptop"/>
+        <field name="x_customer_id" ref="partner_warranty_demo_binh"/>
+        <field name="x_custom_status">under_repair</field>
+        <field name="x_purchase_date" eval="(datetime.now() - timedelta(days=12)).strftime('%Y-%m-%d')"/>
+        <field name="x_warranty_end_date" eval="(datetime.now() + timedelta(days=353)).strftime('%Y-%m-%d')"/>
+    </record>
+    <record id="lot_warranty_demo_done" model="stock.lot">
+        <field name="name">DEMO-PHN-0001</field>
+        <field name="product_id" ref="product_warranty_demo_phone"/>
+        <field name="x_customer_id" ref="partner_warranty_demo_chi"/>
+        <field name="x_custom_status">sold</field>
+        <field name="x_purchase_date" eval="(datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')"/>
+        <field name="x_warranty_end_date" eval="(datetime.now() + timedelta(days=275)).strftime('%Y-%m-%d')"/>
+    </record>
+    <record id="lot_warranty_demo_exchange_old" model="stock.lot">
+        <field name="name">DEMO-PHN-0002</field>
+        <field name="product_id" ref="product_warranty_demo_phone"/>
+        <field name="x_customer_id" ref="partner_warranty_demo_anh"/>
+        <field name="x_custom_status">sold</field>
+        <field name="x_purchase_date" eval="(datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')"/>
+        <field name="x_warranty_end_date" eval="(datetime.now() + timedelta(days=357)).strftime('%Y-%m-%d')"/>
+    </record>
+    <record id="lot_warranty_demo_exchange_new" model="stock.lot">
+        <field name="name">DEMO-PHN-0003</field>
+        <field name="product_id" ref="product_warranty_demo_phone"/>
+        <field name="x_custom_status">available</field>
+    </record>
+
+    <record id="warranty_ticket_demo_repair" model="warranty.ticket">
+        <field name="receive_date" eval="(datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')"/>
+        <field name="serial_id" ref="lot_warranty_demo_repair"/>
+        <field name="ticket_type">repair</field>
+        <field name="issue_category">nsx</field>
+        <field name="fault_description">Máy không nhận sạc, đèn báo chập chờn.</field>
+        <field name="condition_notes">Ngoại quan còn tốt, không trầy xước đáng kể.</field>
+        <field name="state">fixing</field>
+    </record>
+    <record id="warranty_ticket_demo_parts" model="warranty.ticket">
+        <field name="receive_date" eval="(datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d')"/>
+        <field name="serial_id" ref="lot_warranty_demo_parts"/>
+        <field name="ticket_type">repair</field>
+        <field name="issue_category">nsx</field>
+        <field name="fault_description">Bàn phím bị liệt một số phím.</field>
+        <field name="condition_notes">Không có dấu hiệu vào nước hoặc chập cháy.</field>
+        <field name="state">waiting_parts</field>
+    </record>
+    <record id="warranty_ticket_demo_done" model="warranty.ticket">
+        <field name="receive_date" eval="(datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d')"/>
+        <field name="completed_date" eval="(datetime.now() - timedelta(days=17)).strftime('%Y-%m-%d')"/>
+        <field name="serial_id" ref="lot_warranty_demo_done"/>
+        <field name="ticket_type">repair</field>
+        <field name="issue_category">user</field>
+        <field name="fault_description">Thiết bị nóng bất thường khi sử dụng.</field>
+        <field name="repair_resolution">Vệ sinh hệ thống tản nhiệt, thay keo và kiểm tra tải đạt.</field>
+        <field name="state">done</field>
+    </record>
+    <record id="warranty_ticket_demo_exchange" model="warranty.ticket">
+        <field name="receive_date" eval="(datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')"/>
+        <field name="serial_id" ref="lot_warranty_demo_exchange_old"/>
+        <field name="new_serial_id" ref="lot_warranty_demo_exchange_new"/>
+        <field name="ticket_type">exchange</field>
+        <field name="issue_category">nsx</field>
+        <field name="appearance_ok">True</field>
+        <field name="no_liquid_damage">True</field>
+        <field name="security_cleared">True</field>
+        <field name="condition_notes">Lỗi màn hình ngay khi mở hộp.</field>
+        <field name="fault_description">Màn hình có điểm sáng và nhấp nháy.</field>
+        <field name="state">new</field>
+    </record>
+</odoo>
