@@ -148,6 +148,8 @@ các nút duyệt phải thuộc nhóm **Inventory / Administrator**
 - **S1.1 – Kiểm tra tồn khả dụng:** trước khi xác nhận, tổng hợp số lượng hàng
   lưu kho theo từng sản phẩm và từ chối đơn nếu tồn khả dụng tại kho xuất không
   đủ. Với sản phẩm theo serial, hệ thống còn yêu cầu đủ serial đang sẵn sàng bán.
+  Trên báo giá không cần chọn serial. Serial thực tế được quét/chọn trên phiếu
+  giao hàng, khi đã rõ thiết bị nào sẽ giao cho khách.
 - **S1.2 – Kiểm tra serial khi giao:** trước khi xác nhận phiếu giao, yêu cầu
   đủ số lượng serial, đúng sản phẩm, không trùng và còn số lượng trong vị trí
   kho xuất.

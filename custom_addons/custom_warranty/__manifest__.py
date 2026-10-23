@@ -1,6 +1,6 @@
 {
     'name': 'Quản lý Bảo hành & Đổi trả',
-    'version': '18.0.1.2.0',
+    'version': '18.0.1.4.0',
     'summary': 'Tiếp nhận sửa chữa, theo dõi bảo hành và xử lý đổi máy 1-1',
     'author': 'Nhóm 5',
     'license': 'LGPL-3',
