@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_product_template_form_custom_crm" model="ir.ui.view">
+        <field name="name">product.template.form.custom.crm</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_only_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='inventory']" position="inside">
+                <group string="Thông tin kỹ thuật">
+                    <group>
+                        <field name="brand"/>
+                        <field name="cpu"/>
+                        <field name="ram"/>
+                        <field name="storage"/>
+                        <field name="gpu"/>
+                    </group>
+                    <group>
+                        <field name="mouse_connection"/>
+                        <field name="mouse_dpi"/>
+                        <field name="mouse_buttons"/>
+                        <field name="mouse_color"/>
+                        <field name="backpack_material"/>
+                        <field name="backpack_size"/>
+                        <field name="backpack_capacity"/>
+                        <field name="backpack_color"/>
+                    </group>
+                </group>
+            </xpath>
+            <xpath expr="//field[@name='categ_id']" position="after">
+                <field name="lifecycle_product_type"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
