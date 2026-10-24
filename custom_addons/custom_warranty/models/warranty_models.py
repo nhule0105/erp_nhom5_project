@@ -555,6 +555,9 @@ class WarrantyTicket(models.Model):
                 'x_customer_id': old_sn.x_customer_id.id,
                 'x_purchase_date': old_sn.x_purchase_date,
                 'x_warranty_end_date': old_sn.x_warranty_end_date,
+                'x_sale_order_id': old_sn.x_sale_order_id.id,
+                'x_delivery_picking_id': old_sn.x_delivery_picking_id.id,
+                'x_sale_date': old_sn.x_sale_date,
             })
             ticket.with_context(exchange_approval=True).write({
                 'exchange_move_ids': [(6, 0, exchange_moves.ids)],
