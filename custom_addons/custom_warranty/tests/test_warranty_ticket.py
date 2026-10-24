@@ -105,6 +105,13 @@ class TestWarrantyTicket(TransactionCase):
         self.assertEqual(new_lot.x_customer_id, partner)
         self.assertEqual(new_lot.x_purchase_date, purchase_date)
         self.assertEqual(new_lot.x_warranty_end_date, warranty_end)
+        follow_up_ticket = self.env['warranty.ticket'].create({
+            'serial_id': new_lot.id,
+            'ticket_type': 'repair',
+            'fault_description': 'Lỗi phát sinh sau khi đổi máy',
+        })
+        self.assertEqual(follow_up_ticket.partner_id, partner)
+        self.assertEqual(follow_up_ticket.warranty_end_date, warranty_end)
         old_move = self.env['stock.move'].search([
             ('move_line_ids.lot_id', '=', old_lot.id),
             ('state', '=', 'done'),

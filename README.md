@@ -36,7 +36,8 @@ Các module tùy chỉnh cho Odoo 18 nằm trong `custom_addons/`:
    thời hạn đổi mới, đạt kiểm tra ngoại quan/bảo mật và serial thay thế cùng
    sản phẩm còn tồn kho nội bộ. Hệ thống ghi nhận các phiếu dịch chuyển kho,
    chuyển máy lỗi sang vị trí hàng lỗi, giao máy mới cho khách và giữ nguyên
-   ngày bán/hạn bảo hành ban đầu.
+   S/N, khách hàng, đơn giao, ngày bán và hạn bảo hành ban đầu trên máy thay
+   thế để có thể tiếp tục tạo phiếu bảo hành bằng S/N mới.
 6. Luồng **Trả hàng** độc lập chỉ nhập lại serial từ vị trí Khách hàng về kho
    nội bộ. Module không tạo hoàn tiền, hóa đơn điều chỉnh hoặc nghiệp vụ kế
    toán. Chính sách thời hạn đang cấu hình theo từng sản phẩm; không nên coi
