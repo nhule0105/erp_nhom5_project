@@ -21,6 +21,10 @@
         <field name="arch" type="xml">
             <form>
                 <header>
+                    <button name="action_create_combo" type="object" string="Gộp Combo"
+                            class="oe_highlight" invisible="combo_product_id"/>
+                    <button name="action_unbundle_combo" type="object" string="Tách Combo"
+                            invisible="not combo_product_id or state == 'issued'"/>
                     <button name="action_mark_available" type="object" string="Đặt Sẵn sàng"
                             invisible="state == 'available'"/>
                     <button name="action_mark_issued" type="object" string="Đặt Đã xuất"
@@ -36,6 +40,7 @@
                             <field name="name"/>
                             <field name="assembled_date"/>
                             <field name="state"/>
+                            <field name="combo_product_id"/>
                         </group>
                         <group>
                             <field name="laptop_warranty_months"/>
