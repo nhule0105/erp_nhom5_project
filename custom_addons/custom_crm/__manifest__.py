@@ -1,6 +1,6 @@
 {
     'name': 'Danh mục Sản phẩm CRM',
-    'version': '18.0.1.5.0',
+    'version': '18.0.1.6.0',
     'summary': 'Quản lý danh mục laptop, phụ kiện và Serial Number',
     'author': 'Nhóm 5',
     'license': 'LGPL-3',

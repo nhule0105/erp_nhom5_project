@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_warranty_operations_graph" model="ir.ui.view">
+        <field name="name">warranty.ticket.operations.graph</field>
+        <field name="model">warranty.ticket</field>
+        <field name="arch" type="xml">
+            <graph string="Tổng quan hậu mãi theo tháng" type="bar">
+                <field name="receive_date" interval="month"/>
+                <field name="ticket_type"/>
+                <field name="state"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_warranty_operations_pivot" model="ir.ui.view">
+        <field name="name">warranty.ticket.operations.pivot</field>
+        <field name="model">warranty.ticket</field>
+        <field name="arch" type="xml">
+            <pivot string="Tổng hợp phiếu hậu mãi">
+                <field name="ticket_type" type="row"/>
+                <field name="state" type="row"/>
+                <field name="issue_category" type="col"/>
+                <field name="receive_date" interval="month" type="col"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_warranty_operations_report" model="ir.actions.act_window">
+        <field name="name">Báo cáo hậu mãi</field>
+        <field name="res_model">warranty.ticket</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_warranty_ticket_search"/>
+    </record>
+
+</odoo>

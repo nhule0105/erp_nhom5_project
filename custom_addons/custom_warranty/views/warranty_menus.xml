@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <menuitem id="menu_warranty_root" name="Bảo Hành &amp; Đổi Trả" sequence="50"/>
+    <menuitem id="menu_warranty_root" name="Bảo Hành, Sửa Chữa &amp; Đổi Mới 1-1" sequence="50"/>
     <menuitem id="menu_warranty_ticket" name="Phiếu Yêu Cầu" parent="menu_warranty_root" action="action_warranty_ticket" sequence="10"/>
+    <menuitem id="menu_warranty_operations_report" name="Báo Cáo Hậu Mãi"
+              parent="menu_warranty_root" action="action_warranty_operations_report" sequence="20"/>
 </odoo>

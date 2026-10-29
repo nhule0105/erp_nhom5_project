@@ -4,13 +4,15 @@ Các module tùy chỉnh cho Odoo 18 nằm trong `custom_addons/`:
 
 - `custom_warranty`: thêm thông tin khách hàng, trạng thái và ngày bảo hành cho
   serial; quản lý phiếu sửa chữa/bảo hành và đổi mới 1-1 với Kanban, kiểm tra
-  điều kiện tiếp nhận, luân chuyển tồn kho và phân quyền quản lý kho. Thông tin
-  lỗi, trạng thái và ngày kết thúc từ hệ thống nguồn cũng được lưu trên phiếu.
+  điều kiện theo loại hàng, luân chuyển tồn kho, chờ serial thay thế, lịch sử
+  serial và báo cáo hậu mãi dùng chung. Chỉ quản lý kho được duyệt đổi; không hỗ trợ hoàn
+  tiền. Thông tin lỗi, trạng thái và ngày kết thúc từ hệ thống nguồn cũng được
+  lưu trên phiếu.
 - `custom_crm`: bổ sung quy trình CRM tạo combo sản phẩm và quản lý sản phẩm
   bán hàng.
 - `custom_sales`: kiểm tra tồn kho khi xác nhận đơn, kiểm tra serial thực giao,
   tự ghi nhận khách mua/ngày bán/hạn bảo hành theo số tháng cấu hình trên sản
-  phẩm và tra cứu đơn bán từ serial.
+  phẩm và tra cứu dòng đơn bán từ serial; dòng quà tặng lưu rule combo áp dụng.
 
 ## Cài đặt và kết nối PostgreSQL
 
@@ -18,10 +20,16 @@ Odoo sử dụng PostgreSQL trong Docker Compose làm cơ sở dữ liệu đíc
 `erp_tramy`. Database nguồn `laptop_erp` nằm trên PostgreSQL 18 cài trên
 Windows; hai database này ở hai PostgreSQL server khác nhau.
 
-1. Tạo file cấu hình local từ mẫu và thay các mật khẩu mẫu bằng mật khẩu riêng:
+1. Tạo file `.env` ở thư mục gốc với cấu hình sau; thay các mật khẩu mẫu
+   bằng mật khẩu riêng:
 
    ```powershell
-   Copy-Item .env.example .env
+   @(
+       'POSTGRES_USER=odoo'
+       'POSTGRES_PASSWORD=replace-with-a-strong-local-password'
+       'ODOO_MASTER_PASSWORD=replace-with-a-strong-master-password'
+       'ODOO_DB=erp_tramy'
+   ) | Set-Content .env
    ```
 
    `POSTGRES_PASSWORD` là mật khẩu kết nối PostgreSQL; `ODOO_MASTER_PASSWORD`
@@ -39,12 +47,12 @@ Windows; hai database này ở hai PostgreSQL server khác nhau.
    sau khi container được khởi động lại.
 4. Trong Odoo, bật chế độ nhà phát triển, cập nhật danh sách ứng dụng, sau đó
    cài **Tự động hóa Bán hàng & Serial Number**. Module này tự phụ thuộc vào
-   **Quản lý Bảo hành & Đổi trả**, **Sales** và **Inventory**.
+   **Quản lý Bảo hành, Sửa chữa & Đổi mới 1-1**, **Sales** và **Inventory**.
    Khi tạo cơ sở dữ liệu với dữ liệu demo, module bảo hành sẽ nạp sẵn khách
    hàng, sản phẩm/serial và các phiếu bảo hành/đổi trả mẫu ở nhiều trạng thái.
 5. Để dùng CRM sản phẩm, cập nhật danh sách ứng dụng rồi cài module
    **Danh mục Sản phẩm CRM**. Module này phụ thuộc vào **Inventory** và
-   **Quản lý Bảo hành & Đổi trả**.
+   **Quản lý Bảo hành, Sửa chữa & Đổi mới 1-1**.
 
    Danh mục sản phẩm gồm **Laptop** với các hãng **DELL**, **HP**, **ASUS**,
    **LENOVO**, **ACER**, cùng nhóm **Phụ kiện** với các danh mục **Chuột**,
@@ -130,20 +138,24 @@ Odoo ORM/API. Đơn hàng Odoo vẫn là báo giá nháp; không tự xác nhậ
    bắt đầu bảo hành cùng hạn bảo hành. Mặc định laptop được bảo hành 12 tháng,
    chuột 3 tháng; có thể điều chỉnh riêng trên sản phẩm hoặc chính sách danh
    mục.
-3. Cấu hình thời hạn bảo hành theo tháng và thời hạn đổi mới theo ngày ở tab
-   Kho của từng sản phẩm.
-   Thời hạn đổi mới mặc định là 30 ngày nhưng có thể cấu hình theo sản phẩm.
+3. Cấu hình thời hạn bảo hành, nhóm chính sách đổi (thiết bị mới/đã qua sử
+   dụng/phụ kiện) và thời hạn đổi tại tab Kho của sản phẩm hoặc danh mục.
+   Thiết bị mới/đã qua sử dụng áp dụng tối đa 30 ngày; phụ kiện phải cấu hình
+   theo chính sách hãng, tối đa 365 ngày. Phụ kiện chưa cấu hình thời hạn sẽ
+   không đủ điều kiện đổi.
 4. Vào **Quản lý sản phẩm → Quản lý combo** để cấu hình quà tặng theo tổng
    hóa đơn. Mặc định hệ thống áp dụng Chuột + Balo cho hóa đơn dưới 13 triệu,
    thêm Tai nghe từ 13 đến dưới 15 triệu, và thêm Bàn phím từ 15 triệu trở lên.
    Các dòng quà tặng được thêm tự động với đơn giá 0 khi xác nhận đơn bán và
    vẫn phải có tồn kho/Serial để giao hàng.
+   Mỗi dòng quà tặng lưu rule combo đã áp dụng; sau khi giao, serial liên kết
+   đúng dòng bán để tra cứu nguồn gốc combo từ serial hoặc phiếu hậu mãi.
    Màn hình quản lý combo hiển thị số combo có thể ghép từ tồn kho hiện tại.
    Với phụ kiện theo dõi bằng Serial, hệ thống gom danh sách Serial khả dụng
    theo từng sản phẩm, loại bỏ Serial trùng trước khi tính số combo; số combo
    khả dụng bằng số lượng nhỏ nhất của các phụ kiện trong combo.
-5. Tạo phiếu trong menu **Hậu Mãi & Đổi Trả** bằng cách nhập serial hoặc số
-   điện thoại khách hàng. Kỹ thuật viên theo dõi sửa chữa qua các giai đoạn
+5. Tạo phiếu trong menu **Bảo Hành, Sửa Chữa & Đổi Mới 1-1** bằng cách nhập
+   serial hoặc số điện thoại khách hàng. Kỹ thuật viên theo dõi sửa chữa qua các giai đoạn
    **Mới tiếp nhận → Đang sửa → Chờ thay linh kiện → Đã xong**.
 6. Quản lý kho có thể duyệt đổi mới 1-1 khi lỗi do nhà sản xuất, còn trong
    thời hạn đổi mới, đạt kiểm tra ngoại quan/bảo mật và serial thay thế cùng
@@ -151,12 +163,15 @@ Odoo ORM/API. Đơn hàng Odoo vẫn là báo giá nháp; không tự xác nhậ
    chuyển máy lỗi sang vị trí hàng lỗi, giao máy mới cho khách và giữ nguyên
    S/N, khách hàng, đơn giao, ngày bán và hạn bảo hành ban đầu trên máy thay
    thế để có thể tiếp tục tạo phiếu bảo hành bằng S/N mới.
-6. Luồng **Trả hàng** độc lập chỉ nhập lại serial từ vị trí Khách hàng về kho
-   nội bộ. Module không tạo hoàn tiền, hóa đơn điều chỉnh hoặc nghiệp vụ kế
-   toán. Chính sách thời hạn đang cấu hình theo từng sản phẩm; không nên coi
-   con số demo là chính sách áp dụng chung. Có thể đặt thời hạn mặc định ở
-   **Nhóm sản phẩm**; nếu sản phẩm có cấu hình riêng thì cấu hình sản phẩm
-   được ưu tiên.
+   Nếu chưa có serial thay thế, giữ phiếu ở trạng thái **Chờ serial thay thế**;
+   hệ thống chưa tự tạo đơn mua/phiếu backorder cung ứng. Tab **Lịch sử hậu mãi**
+   trên serial cho phép truy chuỗi máy cũ/mới. Nếu không đủ điều kiện đổi,
+   nhập lý do và chuyển phiếu sang sửa chữa/bảo hành; phiếu giữ lại lý do/ngày
+   chuyển. Báo cáo dùng chung xem ở menu **Báo cáo Hậu mãi**, có thể lọc theo
+   loại phiếu, trạng thái và nguyên nhân.
+7. Hệ thống chỉ hỗ trợ đổi mới 1-1 trong điều kiện chính sách cho phép; không
+   hỗ trợ trả hàng để hoàn tiền sau khi khách đã mua. Chính sách thời hạn đổi
+   mới đang cấu hình theo từng sản phẩm hoặc nhóm sản phẩm.
 
 ## Nạp dữ liệu demo an toàn
 
@@ -164,14 +179,18 @@ Dữ liệu trong `custom_warranty/demo/` chỉ được nạp khi cài module v
 **Load demonstration data**. Bộ demo có sẵn tồn kho 1 chiếc cho serial cũ ở
 vị trí **Khách hàng** và serial mới ở vị trí **Kho nội bộ**, nên quản lý kho
 có thể thử nút **Duyệt đổi mới 1-1**. Sau khi duyệt, hai giao dịch hoàn tất
-được hiển thị ngay trên tab **Giao dịch kho** của phiếu.
+được hiển thị ngay trên tab **Giao dịch kho** của phiếu. Demo chỉ có các phiếu
+sửa chữa và đổi mới 1-1, không có luồng trả hàng/hoàn tiền.
 
 Không bật dữ liệu demo hoặc chạy lại seed trên database production hiện tại.
 Để thử an toàn, hãy dùng bản sao database thử nghiệm, bật **Load demonstration
 data** khi cài `custom_warranty`, rồi kiểm tra các phiếu có mã bắt đầu bằng
-`HM/`. Bộ demo có riêng phiếu đổi hàng 1:1 và phiếu trả hàng. Tài khoản thử
-các nút duyệt phải thuộc nhóm **Inventory / Administrator**
+`HM/`. Bộ demo có phiếu sửa chữa và phiếu đổi mới 1-1. Tài khoản thử
+đổi mới phải thuộc nhóm **Inventory / Administrator**
 (`stock.group_stock_manager`); không cần cấp quyền quản trị hệ thống.
+
+Kịch bản từng bước cho phần Châu và Như cùng hướng dẫn tạo database demo mới
+không nhập dữ liệu thủ công được ghi tại [FLOW_BAO_HANH_DOI_TRA.md](./FLOW_BAO_HANH_DOI_TRA.md).
 
 ## Custom phân hệ Bán hàng
 
@@ -193,8 +212,8 @@ các nút duyệt phải thuộc nhóm **Inventory / Administrator**
 
 Kiểm thử nghiệp vụ ở `custom_sales/tests/` tạo dữ liệu đơn hàng, tồn kho và
 serial trong transaction test của Odoo. Sau khi cập nhật code, nâng cấp cả
-**Quản lý Bảo hành & Đổi trả** và **Quản lý Bán hàng Laptop** để nạp các field
-và giao diện mới.
+**Danh mục Sản phẩm CRM**, **Quản lý Bán hàng Laptop** và
+**Quản lý Bảo hành, Sửa chữa & Đổi mới 1-1** để nạp các field và giao diện mới.
 
 ### Tạo 10 giao dịch demo cho custom Bán hàng
 
@@ -223,8 +242,12 @@ custom_addons/
 │   ├── models/
 │   └── views/
 └── custom_warranty/
+    ├── __manifest__.py
     ├── data/
+    ├── demo/
+    ├── migrations/
     ├── models/
     ├── security/
+    ├── tests/
     └── views/
 ```

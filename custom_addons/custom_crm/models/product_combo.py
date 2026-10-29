@@ -326,3 +326,15 @@ class ProductCombo(models.Model):
         for combo in self:
             lots = combo.laptop_lot_id | combo.mouse_lot_id | combo.backpack_lot_id
             lots.write({'lifecycle_status': status})
+
+
+class SaleOrderLine(models.Model):
+    _inherit = 'sale.order.line'
+
+    x_combo_rule_id = fields.Many2one(
+        'custom.crm.combo',
+        string='Rule combo khuyến mại',
+        readonly=True,
+        copy=False,
+        ondelete='set null',
+    )

@@ -10,3 +10,9 @@ class SaleOrderLine(models.Model):
         help='Liên kết serial trong dữ liệu lịch sử đã nhập; không dùng để chọn serial giao hàng.',
         copy=False,
     )
+    x_delivered_serial_ids = fields.One2many(
+        'stock.lot',
+        'x_sale_order_line_id',
+        string='Serial đã giao',
+        readonly=True,
+    )

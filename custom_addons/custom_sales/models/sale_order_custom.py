@@ -45,6 +45,7 @@ class SaleOrder(models.Model):
                     'product_uom': product.uom_id.id,
                     'price_unit': 0,
                     'is_combo_gift': True,
+                    'x_combo_rule_id': combo.id,
                 })
 
     def action_confirm(self):
@@ -345,6 +346,7 @@ class StockPicking(models.Model):
                     'x_customer_id': picking.sale_id.partner_id.id or picking.partner_id.id,
                     'x_custom_status': 'sold',
                     'x_purchase_date': delivery_date,
+                    'x_sale_order_line_id': move_line.move_id.sale_line_id.id,
                     'x_delivery_picking_id': picking.id,
                     'x_sale_order_id': picking.sale_id.id,
                     'x_sale_date': delivery_date,

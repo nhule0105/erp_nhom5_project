@@ -1,6 +1,6 @@
 {
     'name': 'Quản lý Bán hàng Laptop',
-    'version': '18.0.1.9.0',
+    'version': '18.0.1.10.0',
     'summary': 'Quản lý đơn bán Laptop và lịch sử mua hàng',
     'author': 'Nhóm 5',
     'license': 'LGPL-3',

@@ -10,6 +10,7 @@
             </xpath>
             <xpath expr="//field[@name='order_line']/list/field[@name='product_id']" position="after">
                 <field name="is_combo_gift" optional="show" widget="boolean"/>
+                <field name="x_combo_rule_id" optional="hide"/>
             </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Serial bán hàng" name="delivered_serials">
@@ -54,6 +55,7 @@
                     <field name="x_custom_status" readonly="1"/>
                     <field name="x_customer_id" readonly="1"/>
                     <field name="x_sale_order_id" readonly="1"/>
+                    <field name="x_sale_order_line_id" readonly="1"/>
                     <field name="x_sale_date" readonly="1"/>
                     <field name="x_purchase_date" readonly="1"/>
                     <field name="x_warranty_start_date" readonly="1"/>

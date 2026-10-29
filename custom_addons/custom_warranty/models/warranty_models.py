@@ -1,11 +1,19 @@
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, UserError, ValidationError
-from odoo.tools.float_utils import float_compare
+from odoo.exceptions import UserError, ValidationError
 
 
 class ProductCategory(models.Model):
     _inherit = 'product.category'
 
+    exchange_item_type = fields.Selection(
+        [
+            ('new_device', 'Thiết bị mới'),
+            ('used_device', 'Thiết bị đã qua sử dụng'),
+            ('accessory', 'Phụ kiện điện tử'),
+        ],
+        string='Nhóm chính sách đổi',
+        help='Để trống để kế thừa nhóm chính sách từ danh mục cha.',
+    )
     warranty_period_days = fields.Integer(
         string='Bảo hành mặc định (ngày)',
         default=0,
@@ -14,13 +22,40 @@ class ProductCategory(models.Model):
     exchange_period_days = fields.Integer(
         string='Đổi hàng mặc định (ngày)',
         default=0,
-        help='Để 0 nếu từng sản phẩm tự cấu hình thời hạn.',
+        help='Thiết bị chính tối đa 30 ngày; phụ kiện tối đa 365 ngày. Để 0 để kế thừa hoặc dùng mặc định.',
     )
+
+    def _get_exchange_item_type(self):
+        self.ensure_one()
+        category = self
+        while category:
+            if category.exchange_item_type:
+                return category.exchange_item_type
+            category = category.parent_id
+        return 'new_device'
+
+    @api.constrains('exchange_period_days', 'exchange_item_type', 'parent_id')
+    def _check_category_exchange_policy(self):
+        for category in self:
+            limit = 365 if category._get_exchange_item_type() == 'accessory' else 30
+            if category.exchange_period_days < 0 or category.exchange_period_days > limit:
+                raise ValidationError(
+                    _('Thời hạn đổi của danh mục phải nằm trong khoảng 0-%s ngày.') % limit
+                )
 
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
+    exchange_item_type = fields.Selection(
+        [
+            ('new_device', 'Thiết bị mới'),
+            ('used_device', 'Thiết bị đã qua sử dụng'),
+            ('accessory', 'Phụ kiện điện tử'),
+        ],
+        string='Nhóm chính sách đổi',
+        help='Để trống để kế thừa chính sách từ danh mục.',
+    )
     warranty_period_months = fields.Integer(
         string='Thời hạn bảo hành (tháng)',
         default=0,
@@ -33,11 +68,21 @@ class ProductTemplate(models.Model):
         help='Để 0 để dùng chính sách mặc định của nhóm sản phẩm.',
     )
 
-    @api.constrains('warranty_period_months', 'exchange_period_days')
+    @api.constrains(
+        'warranty_period_months',
+        'exchange_period_days',
+        'exchange_item_type',
+        'categ_id',
+    )
     def _check_warranty_periods(self):
         for product in self:
             if product.warranty_period_months < 0 or product.exchange_period_days < 0:
                 raise ValidationError(_('Thời hạn bảo hành và đổi mới không được âm.'))
+            if product.exchange_period_days > product._get_exchange_period_limit():
+                raise ValidationError(
+                    _('Thời hạn đổi của sản phẩm vượt quá giới hạn %s ngày.')
+                    % product._get_exchange_period_limit()
+                )
 
     def _get_warranty_period_months(self):
         self.ensure_one()
@@ -52,11 +97,40 @@ class ProductTemplate(models.Model):
 
     def _get_exchange_period_days(self):
         self.ensure_one()
-        return self.exchange_period_days or self.categ_id.exchange_period_days
+        if self.exchange_period_days:
+            return min(self.exchange_period_days, self._get_exchange_period_limit())
+        item_type = self._get_exchange_item_type()
+        category = self.categ_id
+        while category:
+            if (
+                category.exchange_period_days
+                and category._get_exchange_item_type() == item_type
+            ):
+                return min(category.exchange_period_days, self._get_exchange_period_limit())
+            category = category.parent_id
+        return 0 if item_type == 'accessory' else 30
+
+    def _get_exchange_item_type(self):
+        self.ensure_one()
+        if self.exchange_item_type:
+            return self.exchange_item_type
+        return self.categ_id._get_exchange_item_type()
+
+    def _get_exchange_period_limit(self):
+        self.ensure_one()
+        return 365 if self._get_exchange_item_type() == 'accessory' else 30
 
 
 class StockLot(models.Model):
     _inherit = 'stock.lot'
+
+    _sql_constraints = [
+        (
+            'replacement_source_unique',
+            'unique(x_replaced_from_lot_id)',
+            'Một serial chỉ được dùng làm serial nguồn cho một lần đổi.',
+        ),
+    ]
 
     x_customer_id = fields.Many2one('res.partner', string='Khách hàng')
     x_custom_status = fields.Selection([
@@ -69,9 +143,43 @@ class StockLot(models.Model):
     x_warranty_start_date = fields.Date(string='Ngày bắt đầu bảo hành')
     x_warranty_end_date = fields.Date(string='Ngày hết hạn bảo hành')
     x_sale_order_id = fields.Many2one('sale.order', string='Đơn bán')
+    x_sale_order_line_id = fields.Many2one(
+        'sale.order.line',
+        string='Dòng đơn bán',
+        readonly=True,
+        copy=False,
+        index=True,
+        ondelete='set null',
+    )
     x_delivery_picking_id = fields.Many2one('stock.picking', string='Phiếu giao hàng')
     x_sale_date = fields.Date(string='Ngày giao hàng')
     source_warehouse_location = fields.Char(string='Vị trí kho nguồn')
+    x_replaced_from_lot_id = fields.Many2one(
+        'stock.lot',
+        string='Đổi từ serial',
+        readonly=True,
+        copy=False,
+        index=True,
+        ondelete='restrict',
+    )
+    x_replacement_lot_ids = fields.One2many(
+        'stock.lot',
+        'x_replaced_from_lot_id',
+        string='Serial thay thế',
+        readonly=True,
+    )
+    warranty_ticket_ids = fields.One2many(
+        'warranty.ticket',
+        'serial_id',
+        string='Phiếu hậu mãi theo serial',
+        readonly=True,
+    )
+    replacement_ticket_ids = fields.One2many(
+        'warranty.ticket',
+        'new_serial_id',
+        string='Phiếu đổi sang serial này',
+        readonly=True,
+    )
 
     def validate_serial_number(self, product_id=False, required_qty=0, serial_numbers=None):
         """Kiểm tra nghiệp vụ Serial Number trước khi xuất kho."""
@@ -107,12 +215,11 @@ class StockLot(models.Model):
             if qty_available <= 0:
                 raise ValidationError(f'S/N {serial} không còn trong kho hoặc đã được xuất.')
         return True
-        return True
 
 
 class WarrantyTicket(models.Model):
     _name = 'warranty.ticket'
-    _description = 'Phiếu Bảo hành và Đổi trả'
+    _description = 'Phiếu Bảo hành, Sửa chữa và Đổi mới 1-1'
     _rec_name = 'ticket_code'
     _order = 'receive_date desc, id desc'
 
@@ -142,6 +249,12 @@ class WarrantyTicket(models.Model):
         'sale.order',
         string='Đơn bán',
         related='serial_id.x_sale_order_id',
+        readonly=True,
+    )
+    sale_order_line_id = fields.Many2one(
+        'sale.order.line',
+        string='Dòng đơn bán gốc',
+        related='serial_id.x_sale_order_line_id',
         readonly=True,
     )
     delivery_picking_id = fields.Many2one(
@@ -201,7 +314,6 @@ class WarrantyTicket(models.Model):
         [
             ('repair', 'Sửa chữa / Bảo hành'),
             ('exchange', 'Đổi hàng 1-1'),
-            ('return', 'Trả hàng'),
         ],
         string='Loại xử lý',
         required=True,
@@ -223,27 +335,25 @@ class WarrantyTicket(models.Model):
     condition_notes = fields.Text(string='Tình trạng ngoại quan')
     fault_description = fields.Text(string='Mô tả lỗi kỹ thuật')
     repair_resolution = fields.Text(string='Kết quả xử lý')
+    exchange_referral_reason = fields.Text(string='Lý do chuyển từ đổi sang sửa chữa')
+    exchange_referral_date = fields.Date(
+        string='Ngày chuyển sang sửa chữa',
+        readonly=True,
+        copy=False,
+    )
     exchange_move_ids = fields.Many2many(
         'stock.move',
         'warranty_ticket_stock_move_rel',
         'ticket_id',
         'move_id',
-        string='Giao dịch kho đổi trả',
-        readonly=True,
-        copy=False,
-    )
-    return_move_ids = fields.Many2many(
-        'stock.move',
-        'warranty_ticket_return_move_rel',
-        'ticket_id',
-        'move_id',
-        string='Giao dịch kho trả hàng',
+        string='Giao dịch kho đổi mới',
         readonly=True,
         copy=False,
     )
     state = fields.Selection(
         [
             ('new', 'Mới tiếp nhận'),
+            ('waiting_serial', 'Chờ serial thay thế'),
             ('fixing', 'Đang sửa'),
             ('waiting_parts', 'Chờ thay linh kiện'),
             ('done', 'Đã xong'),
@@ -319,6 +429,8 @@ class WarrantyTicket(models.Model):
     @api.constrains('serial_id', 'new_serial_id', 'ticket_type')
     def _check_serials(self):
         for ticket in self:
+            if ticket.ticket_type not in ('repair', 'exchange'):
+                raise ValidationError(_('Chỉ hỗ trợ sửa chữa/bảo hành hoặc đổi hàng 1-1.'))
             if ticket.serial_id and ticket.serial_id == ticket.new_serial_id:
                 raise ValidationError(_('Serial cũ và serial đổi mới phải khác nhau.'))
             if ticket.new_serial_id and ticket.ticket_type != 'exchange':
@@ -333,12 +445,34 @@ class WarrantyTicket(models.Model):
                 ('state', '!=', 'done'),
             ])
             if duplicate:
-                raise ValidationError(_('Serial này đã có một phiếu bảo hành hoặc đổi trả chưa hoàn tất.'))
+                raise ValidationError(_('Serial này đã có một phiếu hậu mãi chưa hoàn tất.'))
 
     def write(self, vals):
         target_state = vals.get('state')
-        immutable_fields = {'serial_id', 'new_serial_id', 'ticket_type'}
-        if immutable_fields.intersection(vals):
+        exchange_referral = (
+            vals.get('ticket_type') == 'repair'
+            and vals.get('new_serial_id') is False
+            and target_state == 'new'
+            and bool((vals.get('exchange_referral_reason') or '').strip())
+            and vals.get('exchange_referral_date')
+            == fields.Date.context_today(self)
+            and all(
+                ticket.ticket_type == 'exchange'
+                and ticket.state in ('new', 'waiting_serial')
+                for ticket in self
+            )
+        )
+        if 'exchange_referral_date' in vals and not exchange_referral:
+            raise UserError(_('Ngày chuyển chỉ được ghi cùng thao tác chuyển sang sửa chữa.'))
+        if 'exchange_referral_reason' in vals:
+            for ticket in self.filtered('exchange_referral_date'):
+                if vals['exchange_referral_reason'] != ticket.exchange_referral_reason:
+                    raise UserError(_('Không thể sửa lý do chuyển đổi sau khi đã ghi nhận.'))
+        immutable_fields = {'serial_id', 'ticket_type'}
+        if (
+            immutable_fields.intersection(vals)
+            and not exchange_referral
+        ):
             for ticket in self.filtered(lambda record: record.state != 'new'):
                 for field_name in immutable_fields.intersection(vals):
                     current_value = ticket[field_name]
@@ -346,14 +480,17 @@ class WarrantyTicket(models.Model):
                         current_value = current_value.id
                     if vals[field_name] != current_value:
                         raise UserError(_('Không thể thay đổi serial hoặc loại xử lý sau khi bắt đầu xử lý phiếu.'))
+        if 'new_serial_id' in vals:
+            for ticket in self.filtered(
+                lambda record: record.state not in ('new', 'waiting_serial')
+            ):
+                if vals['new_serial_id'] != ticket.new_serial_id.id:
+                    raise UserError(_('Không thể đổi serial thay thế sau khi duyệt phiếu.'))
         if target_state:
             for ticket in self:
                 if target_state == 'done' and ticket.ticket_type == 'exchange':
                     if not self.env.context.get('exchange_approval'):
                         raise UserError(_('Phiếu đổi mới chỉ được hoàn tất bằng thao tác duyệt đổi.'))
-                elif target_state == 'done' and ticket.ticket_type == 'return':
-                    if not self.env.context.get('return_approval'):
-                        raise UserError(_('Phiếu trả hàng chỉ được hoàn tất bằng thao tác duyệt trả hàng.'))
                 elif target_state == 'done':
                     if ticket.state not in ('fixing', 'waiting_parts'):
                         raise UserError(_('Phiếu sửa chữa phải đang xử lý mới có thể hoàn tất.'))
@@ -367,7 +504,14 @@ class WarrantyTicket(models.Model):
                 elif target_state == 'waiting_parts':
                     if ticket.ticket_type != 'repair' or ticket.state != 'fixing':
                         raise UserError(_('Chỉ phiếu đang sửa mới được chuyển sang chờ linh kiện.'))
-                elif target_state == 'new' and ticket.state != 'new':
+                elif target_state == 'waiting_serial':
+                    if ticket.ticket_type != 'exchange' or ticket.state != 'new':
+                        raise UserError(_('Chỉ phiếu đổi mới mới tiếp nhận mới được chờ serial thay thế.'))
+                elif (
+                    target_state == 'new'
+                    and ticket.state != 'new'
+                    and not exchange_referral
+                ):
                     raise UserError(_('Không thể đưa phiếu đã xử lý về trạng thái mới tiếp nhận.'))
 
         result = super().write(vals)
@@ -384,213 +528,3 @@ class WarrantyTicket(models.Model):
                     'completed_date': fields.Date.context_today(self),
                 })
         return result
-
-    def _check_manager(self):
-        if not self.env.user.has_group('stock.group_stock_manager'):
-            raise AccessError(_('Chỉ quản lý kho mới được duyệt đổi mới 1-1.'))
-
-    def _get_lot_location(self, lot, usage, available=False):
-        quants = self.env['stock.quant'].search([
-            ('lot_id', '=', lot.id),
-            ('location_id.usage', '=', usage),
-            ('quantity', '>', 0),
-        ], order='id')
-        for quant in quants:
-            quantity = quant.available_quantity if available else quant.quantity
-            if float_compare(
-                quantity,
-                1.0,
-                precision_rounding=lot.product_id.uom_id.rounding,
-            ) >= 0:
-                return quant.location_id
-        return self.env['stock.location']
-
-    def _create_exchange_moves(self, old_sn, new_sn):
-        if self.exchange_move_ids or self.return_move_ids:
-            raise UserError(_('Phiếu đổi trả này đã có giao dịch kho; không được tạo trùng.'))
-        customer_location = self.env.ref('stock.stock_location_customers')
-        loss_location = self.env['stock.location'].search([
-            ('usage', '=', 'inventory'),
-            ('scrap_location', '=', False),
-            ('company_id', '=', self.env.company.id),
-        ], limit=1)
-        if not loss_location:
-            raise UserError(_('Không tìm thấy vị trí điều chỉnh tồn kho cho công ty hiện tại.'))
-        new_source = self._get_lot_location(new_sn, 'internal', available=True)
-        old_source = self._get_lot_location(old_sn, 'customer', available=True)
-        if not old_source:
-            raise ValidationError(
-                _('Không tìm thấy serial cũ trong vị trí kho Khách hàng; không thể thu hồi tồn kho.')
-            )
-        if not new_source:
-            raise ValidationError(
-                _('Serial thay thế không có sẵn trong kho nội bộ. Hãy chuyển phiếu sang sửa chữa hoặc bổ sung hàng.')
-            )
-        if old_sn.product_id != new_sn.product_id:
-            raise ValidationError(_('Serial đổi mới phải thuộc cùng sản phẩm với serial lỗi.'))
-
-        moves = self.env['stock.move']
-        for lot, source, destination in (
-            (old_sn, old_source, loss_location),
-            (new_sn, new_source, customer_location),
-        ):
-            move = self.env['stock.move'].create({
-                'name': _('Đổi trả 1-1: %s') % self.ticket_code,
-                'product_id': lot.product_id.id,
-                'product_uom_qty': 1,
-                'product_uom': lot.product_id.uom_id.id,
-                'location_id': source.id,
-                'location_dest_id': destination.id,
-                'company_id': self.env.company.id,
-            })
-            self.env['stock.move.line'].create({
-                'move_id': move.id,
-                'product_id': lot.product_id.id,
-                'product_uom_id': lot.product_id.uom_id.id,
-                'location_id': source.id,
-                'location_dest_id': destination.id,
-                'lot_id': lot.id,
-                'quantity': 1,
-                'picked': True,
-            })
-            moves |= move
-        moves._action_done()
-        if any(move.state != 'done' for move in moves):
-            raise UserError(_('Không thể hoàn tất dịch chuyển serial trong kho.'))
-        return moves
-
-    def _create_return_move(self, old_sn):
-        if self.return_move_ids or self.exchange_move_ids:
-            raise UserError(_('Phiếu trả hàng này đã có giao dịch kho; không được tạo trùng.'))
-        warehouse = self.env['stock.warehouse'].search([
-            ('company_id', '=', self.env.company.id),
-        ], limit=1)
-        customer_location = self.env.ref('stock.stock_location_customers')
-        if not warehouse or not warehouse.lot_stock_id:
-            raise UserError(_('Không tìm thấy kho nội bộ để nhập lại sản phẩm trả.'))
-        source = self._get_lot_location(old_sn, 'customer', available=True)
-        if not source:
-            raise ValidationError(_('Không tìm thấy serial trả hàng tại vị trí Khách hàng.'))
-        move = self.env['stock.move'].create({
-            'name': _('Trả hàng: %s') % self.ticket_code,
-            'product_id': old_sn.product_id.id,
-            'product_uom_qty': 1,
-            'product_uom': old_sn.product_id.uom_id.id,
-            'location_id': source.id,
-            'location_dest_id': warehouse.lot_stock_id.id,
-            'company_id': self.env.company.id,
-        })
-        self.env['stock.move.line'].create({
-            'move_id': move.id,
-            'product_id': old_sn.product_id.id,
-            'product_uom_id': old_sn.product_id.uom_id.id,
-            'location_id': source.id,
-            'location_dest_id': warehouse.lot_stock_id.id,
-            'lot_id': old_sn.id,
-            'quantity': 1,
-            'picked': True,
-        })
-        move._action_done()
-        if move.state != 'done':
-            raise UserError(_('Không thể hoàn tất nhập kho sản phẩm trả.'))
-        return move
-
-    def action_start_repair(self):
-        for ticket in self:
-            if ticket.serial_id.x_custom_status not in ('sold', 'under_repair'):
-                raise ValidationError(_('Serial tiếp nhận phải đang được khách hàng sở hữu.'))
-            ticket.state = 'fixing'
-
-    def action_waiting_parts(self):
-        for ticket in self:
-            ticket.state = 'waiting_parts'
-
-    def action_resume_repair(self):
-        for ticket in self:
-            ticket.state = 'fixing'
-
-    def action_complete_repair(self):
-        for ticket in self:
-            if not ticket.repair_resolution:
-                raise ValidationError(_('Hãy ghi nhận kết quả sửa chữa trước khi hoàn tất phiếu.'))
-            ticket.with_context(return_approval=True).write({
-                'state': 'done',
-                'completed_date': fields.Date.context_today(ticket),
-            })
-
-    def action_approve_exchange(self):
-        self._check_manager()
-        for ticket in self:
-            old_sn = ticket.serial_id
-            new_sn = ticket.new_serial_id
-            if ticket.ticket_type != 'exchange':
-                raise UserError(_('Chỉ phiếu có loại xử lý Đổi mới 1-1 mới được duyệt đổi.'))
-            if ticket.state != 'new':
-                raise UserError(_('Chỉ phiếu mới tiếp nhận mới được duyệt đổi mới 1-1.'))
-            if not old_sn or not new_sn:
-                raise ValidationError(_('Phải chọn đầy đủ serial cũ và serial thay thế.'))
-            if old_sn.x_custom_status != 'sold':
-                raise ValidationError(_('Serial cũ chưa được bán ra hoặc đang được xử lý.'))
-            if new_sn.x_custom_status != 'available':
-                raise ValidationError(_('Serial thay thế không còn sẵn sàng trong kho.'))
-            if not old_sn.x_customer_id:
-                raise ValidationError(_('Serial cũ chưa được liên kết với khách hàng.'))
-            if not old_sn.x_purchase_date:
-                raise ValidationError(_('Serial cũ chưa có ngày bán để kiểm tra thời hạn đổi mới.'))
-            if ticket.issue_category != 'nsx':
-                raise ValidationError(_('Chỉ tiếp nhận đổi mới 1-1 cho lỗi nhà sản xuất.'))
-            if not ticket.appearance_ok or not ticket.no_liquid_damage or not ticket.security_cleared:
-                raise ValidationError(
-                    _('Chưa đạt kiểm tra ngoại quan, dấu hiệu vào nước/chập cháy hoặc bảo mật thiết bị.')
-                )
-            exchange_days = old_sn.product_id.product_tmpl_id._get_exchange_period_days()
-            days_since_purchase = (
-                fields.Date.context_today(ticket) - old_sn.x_purchase_date
-            ).days
-            if days_since_purchase < 0 or days_since_purchase > exchange_days:
-                raise ValidationError(
-                    _('Đã quá thời hạn đổi mới %s ngày. Hãy chuyển thiết bị sang luồng sửa chữa.')
-                    % exchange_days
-                )
-
-            exchange_moves = ticket._create_exchange_moves(old_sn, new_sn)
-            old_sn.write({'x_custom_status': 'defective'})
-            new_sn.write({
-                'x_custom_status': 'sold',
-                'x_customer_id': old_sn.x_customer_id.id,
-                'x_purchase_date': old_sn.x_purchase_date,
-                'x_warranty_end_date': old_sn.x_warranty_end_date,
-                'x_sale_order_id': old_sn.x_sale_order_id.id,
-                'x_delivery_picking_id': old_sn.x_delivery_picking_id.id,
-                'x_sale_date': old_sn.x_sale_date,
-            })
-            ticket.with_context(exchange_approval=True).write({
-                'exchange_move_ids': [(6, 0, exchange_moves.ids)],
-                'state': 'done',
-                'completed_date': fields.Date.context_today(ticket),
-            })
-
-    def action_approve_return(self):
-        self._check_manager()
-        for ticket in self:
-            if ticket.ticket_type != 'return':
-                raise UserError(_('Chỉ phiếu có loại xử lý Trả hàng mới được duyệt.'))
-            if ticket.state != 'new':
-                raise UserError(_('Chỉ phiếu mới tiếp nhận mới được duyệt trả hàng.'))
-            old_sn = ticket.serial_id
-            if not old_sn or old_sn.x_custom_status != 'sold':
-                raise ValidationError(_('Serial trả hàng phải đang thuộc khách hàng.'))
-            if not old_sn.x_customer_id or not old_sn.x_purchase_date:
-                raise ValidationError(_('Serial trả hàng chưa đủ thông tin khách hàng/ngày giao.'))
-            if ticket.issue_category == 'unknown':
-                raise ValidationError(_('Cần xác định nguyên nhân trước khi duyệt trả hàng.'))
-            return_move = ticket._create_return_move(old_sn)
-            old_sn.write({
-                'x_custom_status': 'available',
-                'x_customer_id': False,
-            })
-            ticket.with_context(return_approval=True).write({
-                'return_move_ids': [(6, 0, return_move.ids)],
-                'state': 'done',
-                'completed_date': fields.Date.context_today(ticket),
-            })
