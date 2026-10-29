@@ -13,6 +13,7 @@
     ],
     'demo': [
         'demo/warranty_demo.xml',
+        'demo/warranty_exchange_samples.xml',
     ],
     'installable': True,
     'application': True,
