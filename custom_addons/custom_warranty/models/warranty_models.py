@@ -43,8 +43,12 @@ class ProductTemplate(models.Model):
         self.ensure_one()
         if self.warranty_period_months:
             return self.warranty_period_months
-        category_days = self.categ_id.warranty_period_days
-        return max(1, round(category_days / 30.4375)) if category_days else 12
+        category = self.categ_id
+        while category:
+            if category.warranty_period_days:
+                return max(1, round(category.warranty_period_days / 30.4375))
+            category = category.parent_id
+        return 12
 
     def _get_exchange_period_days(self):
         self.ensure_one()
@@ -62,6 +66,7 @@ class StockLot(models.Model):
         ('defective', 'Lỗi / Chờ xử lý')
     ], string='Trạng thái thiết bị', default='available')
     x_purchase_date = fields.Date(string='Ngày mua hàng')
+    x_warranty_start_date = fields.Date(string='Ngày bắt đầu bảo hành')
     x_warranty_end_date = fields.Date(string='Ngày hết hạn bảo hành')
     x_sale_order_id = fields.Many2one('sale.order', string='Đơn bán')
     x_delivery_picking_id = fields.Many2one('stock.picking', string='Phiếu giao hàng')

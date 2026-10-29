@@ -18,12 +18,44 @@ class SaleOrder(models.Model):
         compute='_compute_serial_lot_ids',
     )
 
+    def _apply_promotional_combo(self):
+        Combo = self.env['custom.crm.combo']
+        SaleLine = self.env['sale.order.line']
+        for order in self:
+            if order.state not in ('draft', 'sent'):
+                continue
+            combo = Combo.search([
+                ('active', '=', True),
+                ('company_id', '=', order.company_id.id),
+            ], order='min_order_total desc, id desc')
+            combo = combo.filtered(
+                lambda rule: rule.matches_order_total(order.amount_total)
+            )[:1]
+            if not combo:
+                continue
+            existing_gifts = order.order_line.filtered(
+                lambda line: line.is_combo_gift
+            ).mapped('product_id')
+            for product in combo.component_product_ids - existing_gifts:
+                SaleLine.create({
+                    'order_id': order.id,
+                    'product_id': product.id,
+                    'name': 'Quà tặng combo: %s' % combo.name,
+                    'product_uom_qty': 1,
+                    'product_uom': product.uom_id.id,
+                    'price_unit': 0,
+                    'is_combo_gift': True,
+                })
+
     def action_confirm(self):
         for order in self:
             if order.state not in ('draft', 'sent'):
                 continue
+            order._apply_promotional_combo()
             order._check_sale_stock_availability()
-        return super().action_confirm()
+        result = super().action_confirm()
+        self.mapped('picking_ids')._auto_assign_delivery_serials()
+        return result
 
     def _check_sale_stock_availability(self):
         self.ensure_one()
@@ -48,6 +80,9 @@ class SaleOrder(models.Model):
             )
 
         for product, required_quantity in quantities_by_product.items():
+            if product.tracking == 'serial':
+                product.product_tmpl_id.action_convert_untracked_serial_stock()
+
             available_quantity = product.with_context(
                 location=location.id,
                 allowed_company_ids=[self.company_id.id],
@@ -109,17 +144,104 @@ class SaleOrder(models.Model):
         'picking_ids.state',
         'picking_ids.picking_type_code',
         'picking_ids.move_ids.move_line_ids.lot_id',
+        'picking_ids.move_ids.move_line_ids.quantity',
     )
     def _compute_serial_lot_ids(self):
         for order in self:
             order.serial_lot_ids = order.picking_ids.filtered(
-                lambda picking: picking.state == 'done'
-                and picking.picking_type_code == 'outgoing'
+                lambda picking: picking.picking_type_code == 'outgoing'
+                and picking.state != 'cancel'
             ).move_ids.move_line_ids.lot_id
 
 
 class StockPicking(models.Model):
     _inherit = 'stock.picking'
+
+    def _auto_assign_delivery_serials(self):
+        for picking in self.filtered(
+            lambda record: record.picking_type_code == 'outgoing'
+            and record.sale_id
+        ):
+            for move in picking.move_ids.filtered(
+                lambda item: item.product_id.tracking == 'serial'
+                and item.state not in ('done', 'cancel')
+            ):
+                required_quantity = move.product_uom._compute_quantity(
+                    move.product_uom_qty,
+                    move.product_id.uom_id,
+                )
+                assigned_lines = move.move_line_ids.filtered(
+                    lambda line: line.quantity > 0 and line.lot_id
+                )
+                assigned_quantity = sum(
+                    assigned_lines.mapped('quantity_product_uom')
+                )
+                missing_quantity = int(round(
+                    required_quantity - assigned_quantity
+                ))
+                if missing_quantity <= 0:
+                    continue
+
+                used_lot_ids = set(assigned_lines.mapped('lot_id').ids)
+                quants = self.env['stock.quant'].search([
+                    ('product_id', '=', move.product_id.id),
+                    ('location_id', 'child_of', move.location_id.id),
+                    ('location_id.usage', '=', 'internal'),
+                    ('company_id', 'in', [False, picking.company_id.id]),
+                    ('lot_id', '!=', False),
+                ])
+                available_lots = []
+                for quant in quants:
+                    if quant.lot_id.id in used_lot_ids:
+                        continue
+                    if quant.lot_id.x_custom_status != 'available':
+                        continue
+                    if quant.quantity - quant.reserved_quantity > 0:
+                        available_lots.append(quant.lot_id)
+                        used_lot_ids.add(quant.lot_id.id)
+
+                if len(available_lots) < missing_quantity:
+                    raise ValidationError(
+                        f'Không đủ S/N khả dụng để giao {move.product_id.display_name}. '
+                        f'Cần thêm {missing_quantity}, chỉ còn '
+                        f'{len(available_lots)}.'
+                    )
+
+                empty_lines = list(move.move_line_ids.filtered(
+                    lambda line: line.quantity > 0 and not line.lot_id
+                ))
+                for lot in available_lots[:missing_quantity]:
+                    if empty_lines:
+                        line = empty_lines.pop(0)
+                        remaining_quantity = line.quantity - 1.0
+                        line.write({
+                            'lot_id': lot.id,
+                            'quantity': 1.0,
+                        })
+                        if remaining_quantity > 0:
+                            remainder = self.env['stock.move.line'].create({
+                                'picking_id': picking.id,
+                                'move_id': move.id,
+                                'company_id': picking.company_id.id,
+                                'product_id': move.product_id.id,
+                                'product_uom_id': move.product_uom.id,
+                                'location_id': move.location_id.id,
+                                'location_dest_id': move.location_dest_id.id,
+                                'quantity': remaining_quantity,
+                            })
+                            empty_lines.append(remainder)
+                    else:
+                        self.env['stock.move.line'].create({
+                            'picking_id': picking.id,
+                            'move_id': move.id,
+                            'company_id': picking.company_id.id,
+                            'product_id': move.product_id.id,
+                            'product_uom_id': move.product_uom.id,
+                            'location_id': move.location_id.id,
+                            'location_dest_id': move.location_dest_id.id,
+                            'lot_id': lot.id,
+                            'quantity': 1.0,
+                        })
 
     def _validate_sale_delivery_serials(self):
         for picking in self.filtered(
@@ -197,10 +319,12 @@ class StockPicking(models.Model):
                         )
 
     def button_validate(self):
+        self._auto_assign_delivery_serials()
         self._validate_sale_delivery_serials()
         return super().button_validate()
 
     def _action_done(self):
+        self._auto_assign_delivery_serials()
         self._validate_sale_delivery_serials()
         result = super()._action_done()
         for picking in self.filtered(
@@ -216,9 +340,7 @@ class StockPicking(models.Model):
                 serial = move_line.lot_id
                 if not serial:
                     continue
-                warranty_months = (
-                    serial.product_id.product_tmpl_id._get_warranty_period_months()
-                )
+                warranty_months = serial.product_id.product_tmpl_id._get_warranty_period_months()
                 serial.write({
                     'x_customer_id': picking.sale_id.partner_id.id or picking.partner_id.id,
                     'x_custom_status': 'sold',
@@ -226,6 +348,7 @@ class StockPicking(models.Model):
                     'x_delivery_picking_id': picking.id,
                     'x_sale_order_id': picking.sale_id.id,
                     'x_sale_date': delivery_date,
+                    'x_warranty_start_date': delivery_date,
                     'x_warranty_end_date': fields.Date.add(
                         delivery_date,
                         months=warranty_months,
@@ -242,4 +365,14 @@ class ResPartner(models.Model):
         'partner_id',
         string='Lịch sử mua hàng',
         domain=[('state', 'in', ['sale', 'done'])],
+    )
+
+
+class SaleOrderLine(models.Model):
+    _inherit = 'sale.order.line'
+
+    is_combo_gift = fields.Boolean(
+        string='Quà tặng combo',
+        copy=False,
+        readonly=True,
     )

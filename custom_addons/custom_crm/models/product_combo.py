@@ -10,7 +10,7 @@ class ProductCombo(models.Model):
     _order = 'create_date desc, id desc'
 
     name = fields.Char(
-        string='Mã Combo',
+        string='Tên combo',
         required=True,
         copy=False,
         default=lambda self: self.env['ir.sequence'].next_by_code(
@@ -18,16 +18,72 @@ class ProductCombo(models.Model):
         ) or 'New',
         index=True,
     )
+    combo_tier = fields.Selection(
+        [
+            ('under_13m', 'Dưới 13 triệu'),
+            ('13m_to_15m', 'Từ 13 triệu đến dưới 15 triệu'),
+            ('over_15m', 'Từ 15 triệu trở lên'),
+        ],
+        string='Mức hóa đơn',
+        required=True,
+        default='under_13m',
+    )
+    min_order_total = fields.Monetary(
+        string='Tổng hóa đơn từ',
+        currency_field='currency_id',
+        required=True,
+        default=0,
+    )
+    max_order_total = fields.Monetary(
+        string='Tổng hóa đơn dưới',
+        currency_field='currency_id',
+        help='Để trống nếu không giới hạn trên.',
+    )
+    gift_value_limit = fields.Monetary(
+        string='Giá trị quà tặng tối đa',
+        currency_field='currency_id',
+        required=True,
+        default=0,
+    )
+    currency_id = fields.Many2one(
+        'res.currency',
+        related='company_id.currency_id',
+        readonly=True,
+    )
+    company_id = fields.Many2one(
+        'res.company',
+        required=True,
+        default=lambda self: self.env.company,
+    )
+    component_product_ids = fields.Many2many(
+        'product.product',
+        'custom_crm_combo_product_rel',
+        'combo_id',
+        'product_id',
+        string='Sản phẩm phụ kiện tặng',
+        domain="[('is_storable', '=', True)]",
+    )
+    available_combo_count = fields.Integer(
+        string='Số combo hiện có',
+        compute='_compute_available_combo_inventory',
+        help='Số combo có thể ghép từ tồn kho khả dụng hiện tại.',
+    )
+    component_serial_summary = fields.Text(
+        string='Serial phụ kiện khả dụng',
+        compute='_compute_available_combo_inventory',
+        help='Danh sách Serial không trùng của từng phụ kiện trong kho.',
+    )
+    active = fields.Boolean(default=True)
     laptop_lot_id = fields.Many2one(
         'stock.lot',
         string='S/N Laptop',
-        required=True,
+        required=False,
         domain="[('lifecycle_status', '=', 'available')]",
     )
     mouse_lot_id = fields.Many2one(
         'stock.lot',
         string='S/N Chuột',
-        required=True,
+        required=False,
         domain="[('lifecycle_status', '=', 'available')]",
     )
     backpack_lot_id = fields.Many2one(
@@ -102,6 +158,87 @@ class ProductCombo(models.Model):
                 combo.backpack_warranty_months,
             )):
                 raise ValidationError('Thời hạn bảo hành không được âm.')
+
+    @api.constrains('min_order_total', 'max_order_total', 'gift_value_limit')
+    def _check_promotion_values(self):
+        for combo in self:
+            if combo.min_order_total < 0 or combo.gift_value_limit < 0:
+                raise ValidationError('Giá trị combo không được âm.')
+            if combo.max_order_total and combo.max_order_total <= combo.min_order_total:
+                raise ValidationError(
+                    'Mức hóa đơn tối đa phải lớn hơn mức hóa đơn tối thiểu.'
+                )
+
+    @api.constrains('component_product_ids')
+    def _check_component_products(self):
+        for combo in self:
+            if len(combo.component_product_ids) > 4:
+                raise ValidationError('Một combo không được quá 4 phụ kiện.')
+            if any(not product.is_storable for product in combo.component_product_ids):
+                raise ValidationError('Sản phẩm trong combo phải là hàng hóa lưu kho.')
+
+    def _get_available_component_inventory(self, product):
+        """Return unique available Serial names or the available quantity."""
+        self.ensure_one()
+        quants = self.env['stock.quant'].search([
+            ('product_id', '=', product.id),
+            ('location_id.usage', '=', 'internal'),
+            ('company_id', 'in', [False, self.company_id.id]),
+        ])
+        if product.tracking != 'serial':
+            quantity = sum(
+                quant.quantity - quant.reserved_quantity
+                for quant in quants
+            )
+            return max(0, int(quantity)), []
+
+        lots_by_name = {}
+        for quant in quants:
+            lot = quant.lot_id
+            if not lot or quant.quantity - quant.reserved_quantity <= 0:
+                continue
+            if lot.lifecycle_status != 'available' or lot.x_custom_status != 'available':
+                continue
+            lots_by_name.setdefault(lot.name, lot)
+        serials = sorted(lots_by_name)
+        return len(serials), serials
+
+    @api.depends('component_product_ids')
+    def _compute_available_combo_inventory(self):
+        for combo in self:
+            if not combo.component_product_ids:
+                combo.available_combo_count = 0
+                combo.component_serial_summary = False
+                continue
+
+            component_counts = []
+            summary_lines = []
+            for product in combo.component_product_ids.sorted('display_name'):
+                count, serials = combo._get_available_component_inventory(product)
+                component_counts.append(count)
+                if product.tracking == 'serial':
+                    serial_text = ', '.join(serials) or 'Không có Serial khả dụng'
+                    summary_lines.append(
+                        '%s (%s): %s'
+                        % (product.display_name, count, serial_text)
+                    )
+                else:
+                    summary_lines.append(
+                        '%s (tồn khả dụng: %s)' % (product.display_name, count)
+                    )
+
+            combo.available_combo_count = min(component_counts)
+            combo.component_serial_summary = '\n'.join(summary_lines)
+
+    def matches_order_total(self, amount_total):
+        self.ensure_one()
+        return (
+            amount_total >= self.min_order_total
+            and (
+                not self.max_order_total
+                or amount_total < self.max_order_total
+            )
+        )
 
     def _get_component_lots(self):
         self.ensure_one()

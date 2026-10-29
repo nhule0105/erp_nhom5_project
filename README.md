@@ -45,6 +45,11 @@ Windows; hai database này ở hai PostgreSQL server khác nhau.
 5. Để dùng CRM sản phẩm, cập nhật danh sách ứng dụng rồi cài module
    **Danh mục Sản phẩm CRM**. Module này phụ thuộc vào **Inventory** và
    **Quản lý Bảo hành & Đổi trả**.
+
+   Danh mục sản phẩm gồm **Laptop** với các hãng **DELL**, **HP**, **ASUS**,
+   **LENOVO**, **ACER**, cùng nhóm **Phụ kiện** với các danh mục **Chuột**,
+   **Ba lô**, **Bàn phím** và **Tai nghe**. Không tạo danh mục MacBook; sản
+   phẩm laptop hiện có được xếp vào **DELL**.
 6. Để kiểm tra kết nối XML-RPC tới database Odoo `erp_tramy`, đặt mật khẩu đăng
    nhập Odoo đã tạo ở bước 3 rồi chạy. Mặc định tài khoản là `admin`; nếu chọn
    login khác, hãy sửa `ODOO_USERNAME` thành login đó:
@@ -106,17 +111,41 @@ Odoo ORM/API. Đơn hàng Odoo vẫn là báo giá nháp; không tự xác nhậ
 ## Luồng sử dụng
 
 1. Tạo sản phẩm có theo dõi tồn kho theo serial và nhập serial vào kho.
+   Với phiếu nhập sản phẩm đang chọn **Theo số sê-ri duy nhất**, khi bấm
+   **Xác nhận**, hệ thống tự sinh đúng một S/N 8 ký tự
+   (chữ in hoa và số) cho từng đơn vị. Ví dụ nhập 100 chiếc sẽ có đúng 100
+   S/N khác nhau, mỗi S/N gắn với một chiếc và hiển thị ngay trên dòng nhập.
+   Ngày nhập được ghi sau khi phiếu nhập hoàn tất; thời hạn bảo hành chưa bắt
+   đầu ở bước này. Bảo hành chỉ bắt đầu khi phiếu giao hàng của đơn bán được
+   hoàn tất; bấm xác nhận lại cũng không tạo trùng S/N.
+   Tồn kho cũ chưa có S/N được hệ thống xử lý nội bộ khi cần thiết; người dùng
+   không cần thao tác nút tạo Serial riêng. S/N mới luôn được sinh tự động
+   trong luồng nhập kho.
 2. Tạo đơn bán, chọn khách hàng và sản phẩm; xác nhận đơn sau khi hệ thống kiểm
-   tra đủ tồn kho khả dụng. Xử lý phiếu giao hàng và quét đúng serial thực tế.
+   tra đủ tồn kho khả dụng. Nếu tồn kho cũ của sản phẩm Serial chưa có S/N,
+   hệ thống tự chuyển từng đơn vị tồn thành một S/N trước khi kiểm tra đơn.
+   Khi giao hàng, hệ thống tự chọn các S/N đã nhập kho
+   và đang khả dụng; không cần nhập lại S/N trên phiếu giao.
    Sau khi giao, serial liên kết với khách hàng/đơn bán và được cập nhật ngày
-   bán, hạn bảo hành.
+   bắt đầu bảo hành cùng hạn bảo hành. Mặc định laptop được bảo hành 12 tháng,
+   chuột 3 tháng; có thể điều chỉnh riêng trên sản phẩm hoặc chính sách danh
+   mục.
 3. Cấu hình thời hạn bảo hành theo tháng và thời hạn đổi mới theo ngày ở tab
    Kho của từng sản phẩm.
    Thời hạn đổi mới mặc định là 30 ngày nhưng có thể cấu hình theo sản phẩm.
-4. Tạo phiếu trong menu **Hậu Mãi & Đổi Trả** bằng cách nhập serial hoặc số
+4. Vào **Quản lý sản phẩm → Quản lý combo** để cấu hình quà tặng theo tổng
+   hóa đơn. Mặc định hệ thống áp dụng Chuột + Balo cho hóa đơn dưới 13 triệu,
+   thêm Tai nghe từ 13 đến dưới 15 triệu, và thêm Bàn phím từ 15 triệu trở lên.
+   Các dòng quà tặng được thêm tự động với đơn giá 0 khi xác nhận đơn bán và
+   vẫn phải có tồn kho/Serial để giao hàng.
+   Màn hình quản lý combo hiển thị số combo có thể ghép từ tồn kho hiện tại.
+   Với phụ kiện theo dõi bằng Serial, hệ thống gom danh sách Serial khả dụng
+   theo từng sản phẩm, loại bỏ Serial trùng trước khi tính số combo; số combo
+   khả dụng bằng số lượng nhỏ nhất của các phụ kiện trong combo.
+5. Tạo phiếu trong menu **Hậu Mãi & Đổi Trả** bằng cách nhập serial hoặc số
    điện thoại khách hàng. Kỹ thuật viên theo dõi sửa chữa qua các giai đoạn
    **Mới tiếp nhận → Đang sửa → Chờ thay linh kiện → Đã xong**.
-5. Quản lý kho có thể duyệt đổi mới 1-1 khi lỗi do nhà sản xuất, còn trong
+6. Quản lý kho có thể duyệt đổi mới 1-1 khi lỗi do nhà sản xuất, còn trong
    thời hạn đổi mới, đạt kiểm tra ngoại quan/bảo mật và serial thay thế cùng
    sản phẩm còn tồn kho nội bộ. Hệ thống ghi nhận các phiếu dịch chuyển kho,
    chuyển máy lỗi sang vị trí hàng lỗi, giao máy mới cho khách và giữ nguyên

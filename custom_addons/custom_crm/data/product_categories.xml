@@ -3,12 +3,53 @@
     <data noupdate="1">
         <record id="product_category_laptop" model="product.category">
             <field name="name">Laptop</field>
+            <field name="parent_id" ref="product.product_category_all"/>
+            <field name="warranty_period_days">365</field>
+        </record>
+        <record id="product_category_dell" model="product.category">
+            <field name="name">DELL</field>
+            <field name="parent_id" ref="product_category_laptop"/>
+            <field name="warranty_period_days">365</field>
+        </record>
+        <record id="product_category_hp" model="product.category">
+            <field name="name">HP</field>
+            <field name="parent_id" ref="product_category_laptop"/>
+            <field name="warranty_period_days">365</field>
+        </record>
+        <record id="product_category_asus" model="product.category">
+            <field name="name">ASUS</field>
+            <field name="parent_id" ref="product_category_laptop"/>
+            <field name="warranty_period_days">365</field>
+        </record>
+        <record id="product_category_lenovo" model="product.category">
+            <field name="name">LENOVO</field>
+            <field name="parent_id" ref="product_category_laptop"/>
+            <field name="warranty_period_days">365</field>
+        </record>
+        <record id="product_category_acer" model="product.category">
+            <field name="name">ACER</field>
+            <field name="parent_id" ref="product_category_laptop"/>
+            <field name="warranty_period_days">365</field>
+        </record>
+        <record id="product_category_accessories" model="product.category">
+            <field name="name">Phụ kiện</field>
+            <field name="warranty_period_days">90</field>
         </record>
         <record id="product_category_mouse" model="product.category">
             <field name="name">Chuột</field>
+            <field name="parent_id" ref="product_category_accessories"/>
         </record>
         <record id="product_category_backpack" model="product.category">
-            <field name="name">Balo</field>
+            <field name="name">Ba lô</field>
+            <field name="parent_id" ref="product_category_accessories"/>
+        </record>
+        <record id="product_category_keyboard" model="product.category">
+            <field name="name">Bàn phím</field>
+            <field name="parent_id" ref="product_category_accessories"/>
+        </record>
+        <record id="product_category_headset" model="product.category">
+            <field name="name">Tai nghe</field>
+            <field name="parent_id" ref="product_category_accessories"/>
         </record>
     </data>
 </odoo>
