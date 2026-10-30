@@ -7,7 +7,8 @@
         <field name="arch" type="xml">
             <xpath expr="//page[@name='inventory']" position="inside">
                 <group string="Bảo hành &amp; đổi mới">
-                    <field name="warranty_period_days"/>
+                    <field name="warranty_period_months"/>
+                    <field name="exchange_item_type"/>
                     <field name="exchange_period_days"/>
                 </group>
             </xpath>
@@ -19,6 +20,7 @@
         <field name="inherit_id" ref="product.product_category_form_view"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='parent_id']" position="after">
+                <field name="exchange_item_type"/>
                 <field name="warranty_period_days"/>
                 <field name="exchange_period_days"/>
             </xpath>
@@ -39,13 +41,20 @@
                             invisible="ticket_type != 'repair' or state != 'waiting_parts'"/>
                     <button name="action_complete_repair" type="object" string="Hoàn tất sửa chữa"
                             invisible="ticket_type != 'repair' or state not in ['fixing', 'waiting_parts']"/>
+                    <button name="action_confirm_warranty_decision" type="object"
+                            string="Xác nhận quyết định bảo hành" class="oe_highlight"
+                            invisible="ticket_type != 'repair' or warranty_decision == 'pending' or warranty_decision_user_id"/>
+                    <button name="%(action_warranty_receipt_report)d" type="action"
+                            string="In biên nhận" class="oe_highlight"/>
+                    <button name="action_wait_for_exchange_serial" type="object" string="Chờ serial thay thế"
+                            invisible="ticket_type != 'exchange' or state != 'new'"/>
+                    <button name="action_refer_exchange_to_repair" type="object" string="Chuyển sang sửa chữa"
+                            invisible="ticket_type != 'exchange' or state not in ['new', 'waiting_serial']"/>
                     <button name="action_approve_exchange" type="object" string="Duyệt đổi mới 1-1"
                             class="oe_highlight" groups="stock.group_stock_manager"
-                            invisible="ticket_type != 'exchange' or state != 'new'"/>
-                    <button name="action_approve_return" type="object" string="Duyệt trả hàng"
-                            class="oe_highlight" groups="stock.group_stock_manager"
-                            invisible="ticket_type != 'return' or state != 'new'"/>
-                    <field name="state" widget="statusbar" statusbar_visible="new,fixing,waiting_parts,done"/>
+                            invisible="ticket_type != 'exchange' or state not in ['new', 'waiting_serial']"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="new,waiting_serial,fixing,waiting_parts,done"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
@@ -59,15 +68,27 @@
                             <field name="partner_id"/>
                             <field name="product_id"/>
                             <field name="sale_order_id"/>
+                            <field name="sale_order_line_id"/>
                             <field name="delivery_picking_id"/>
                             <field name="purchase_date"/>
+                            <field name="technician_id"
+                                   invisible="ticket_type != 'repair'"/>
                         </group>
                         <group>
                             <field name="receive_date"/>
+                            <field name="sla_days"/>
+                            <field name="promised_return_date"/>
                             <field name="warranty_end_date"/>
                             <field name="days_remaining"/>
                             <field name="warranty_status"/>
                             <field name="issue_category"/>
+                            <field name="warranty_decision"
+                                   readonly="warranty_decision_user_id"/>
+                            <field name="warranty_decision_reason"
+                                   placeholder="Ghi rõ căn cứ xác nhận miễn phí hoặc tính phí..."/>
+                            <field name="warranty_decision_user_id" readonly="1"/>
+                            <field name="warranty_decision_date" readonly="1"/>
+                            <field name="is_overdue" string="Trạng thái SLA" widget="boolean"/>
                             <field name="completed_date" invisible="state != 'done'"/>
                         </group>
                     </group>
@@ -84,14 +105,37 @@
                                     <field name="fault_description"/>
                                 </group>
                             </group>
+                            <group string="Checklist tiếp nhận">
+                                <field name="screen_condition"/>
+                                <field name="keyboard_condition"/>
+                                <field name="battery_charger_condition"/>
+                                <field name="accessories_condition"/>
+                                <field name="intake_notes"/>
+                                <field name="inspection_attachment_ids"
+                                       widget="many2many_binary"
+                                       options="{'accepted_file_extensions': 'image/*'}"/>
+                            </group>
                         </page>
                         <page string="Sửa chữa" invisible="ticket_type != 'repair'">
+                            <group string="Phân công và thời gian">
+                                <field name="technician_id"/>
+                                <field name="technician_assigned_date" readonly="1"/>
+                                <field name="repair_start_datetime" readonly="1"/>
+                                <field name="repair_completed_datetime" readonly="1"/>
+                                <field name="processing_duration_hours" readonly="1"/>
+                                <field name="is_overdue" readonly="1"/>
+                            </group>
+                            <group invisible="not exchange_referral_date">
+                                <field name="exchange_referral_reason" readonly="1"/>
+                                <field name="exchange_referral_date"/>
+                            </group>
                             <field name="repair_resolution"
                                    placeholder="Ghi rõ thao tác sửa chữa và kết quả kiểm tra..."/>
                         </page>
                         <page string="Đổi mới 1-1" invisible="ticket_type != 'exchange'">
                             <group>
-                                <field name="new_serial_id"/>
+                                <field name="new_serial_id"
+                                       readonly="state not in ['new', 'waiting_serial']"/>
                                 <field name="appearance_ok"/>
                                 <field name="no_liquid_damage"/>
                                 <field name="security_cleared"/>
@@ -100,18 +144,32 @@
                                 Chỉ quản lý kho được duyệt. Khi duyệt, serial lỗi được chuyển tới vị trí hàng lỗi,
                                 serial thay thế được xuất cho khách và giữ nguyên hạn bảo hành cũ.
                             </div>
-                        </page>
-                        <page string="Trả hàng" invisible="ticket_type != 'return'">
-                            <div class="text-muted">
-                                Chỉ quản lý kho được duyệt. Hệ thống chỉ nhập lại serial vào kho,
-                                không tạo hoàn tiền hoặc nghiệp vụ kế toán.
+                            <div class="text-muted" invisible="state != 'waiting_serial'">
+                                Phiếu đang chờ hàng. Chọn serial mới khi kho có hàng, sau đó quản lý kho duyệt đổi.
                             </div>
+                            <group>
+                                <field name="exchange_referral_reason"
+                                       readonly="ticket_type != 'exchange'"
+                                       placeholder="Bắt buộc ghi lý do khi chuyển phiếu sang sửa chữa..."/>
+                            </group>
                         </page>
                         <page string="Giao dịch kho" invisible="not exchange_move_ids">
                             <field name="exchange_move_ids" readonly="1" options="{'no_create': True}"/>
                         </page>
                         <page string="Giao dịch trả hàng" invisible="not return_move_ids">
                             <field name="return_move_ids" readonly="1" options="{'no_create': True}"/>
+                        </page>
+                        <page string="Lịch sử serial" invisible="not serial_history_ids">
+                            <field name="serial_history_ids" readonly="1" options="{'no_create': True}">
+                                <list>
+                                    <field name="ticket_code"/>
+                                    <field name="receive_date"/>
+                                    <field name="ticket_type"/>
+                                    <field name="issue_category"/>
+                                    <field name="state"/>
+                                    <field name="completed_date"/>
+                                </list>
+                            </field>
                         </page>
                     </notebook>
                 </sheet>
@@ -130,6 +188,10 @@
                 <field name="partner_id"/>
                 <field name="product_id"/>
                 <field name="issue_category"/>
+                <field name="technician_id"/>
+                <field name="sla_days"/>
+                <field name="promised_return_date"/>
+                <field name="is_overdue"/>
                 <field name="receive_date"/>
                 <field name="state"/>
                 <templates>
@@ -164,6 +226,10 @@
                 <field name="product_id"/>
                 <field name="ticket_type"/>
                 <field name="issue_category"/>
+                <field name="technician_id"/>
+                <field name="promised_return_date"/>
+                <field name="is_overdue"/>
+                <field name="processing_duration_hours"/>
                 <field name="days_remaining"/>
                 <field name="warranty_status"/>
                 <field name="state"/>
@@ -182,23 +248,27 @@
                 <field name="customer_phone"/>
                 <field name="ticket_type"/>
                 <field name="issue_category"/>
+                <field name="technician_id"/>
                 <filter name="repairs" string="Sửa chữa" domain="[('ticket_type', '=', 'repair')]"/>
                 <filter name="exchanges" string="Đổi mới" domain="[('ticket_type', '=', 'exchange')]"/>
-                <filter name="returns" string="Trả hàng" domain="[('ticket_type', '=', 'return')]"/>
                 <filter name="open" string="Chưa hoàn tất" domain="[('state', '!=', 'done')]"/>
                 <filter name="expired" string="Hết hạn bảo hành"
                         domain="[('warranty_end_date', '&lt;', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="overdue" string="Quá hạn trả"
+                        domain="[('state', '!=', 'done'), ('promised_return_date', '&lt;', context_today().strftime('%Y-%m-%d'))]"/>
                 <group expand="0" string="Nhóm theo">
                     <filter name="group_state" string="Trạng thái" context="{'group_by': 'state'}"/>
                     <filter name="group_type" string="Loại xử lý" context="{'group_by': 'ticket_type'}"/>
                     <filter name="group_partner" string="Khách hàng" context="{'group_by': 'partner_id'}"/>
+                    <filter name="group_technician" string="Kỹ thuật viên"
+                            context="{'group_by': 'technician_id'}"/>
                 </group>
             </search>
         </field>
     </record>
 
     <record id="action_warranty_ticket" model="ir.actions.act_window">
-        <field name="name">Phiếu Bảo Hành &amp; Đổi Trả</field>
+        <field name="name">Phiếu Bảo Hành, Sửa Chữa &amp; Đổi Mới 1-1</field>
         <field name="res_model">warranty.ticket</field>
         <field name="view_mode">kanban,list,form</field>
         <field name="search_view_id" ref="view_warranty_ticket_search"/>
@@ -214,6 +284,54 @@
                 <field name="x_customer_id"/>
                 <field name="x_purchase_date"/>
                 <field name="x_warranty_end_date"/>
+                <field name="x_sale_order_id"/>
+                <field name="x_sale_date"/>
+            </xpath>
+            <xpath expr="//notebook" position="inside">
+                <page string="Lịch sử hậu mãi">
+                    <group>
+                        <field name="x_replaced_from_lot_id"/>
+                        <field name="x_replacement_lot_ids" readonly="1">
+                            <list>
+                                <field name="name"/>
+                                <field name="x_custom_status"/>
+                                <field name="x_customer_id"/>
+                                <field name="x_warranty_end_date"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Phiếu theo serial tiếp nhận">
+                        <field name="warranty_ticket_ids" readonly="1">
+                            <list>
+                                <field name="ticket_code"/>
+                                <field name="ticket_type"/>
+                                <field name="receive_date"/>
+                                <field name="state"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Phiếu đổi sang serial này">
+                        <field name="replacement_ticket_ids" readonly="1">
+                            <list>
+                                <field name="ticket_code"/>
+                                <field name="receive_date"/>
+                                <field name="state"/>
+                            </list>
+                        </field>
+                    </group>
+                </page>
+            </xpath>
+            <xpath expr="//field[@name='x_sale_date']" position="after">
+                <field name="warranty_ticket_ids" readonly="1" options="{'no_create': True}">
+                    <list>
+                        <field name="ticket_code"/>
+                        <field name="receive_date"/>
+                        <field name="ticket_type"/>
+                        <field name="issue_category"/>
+                        <field name="state"/>
+                        <field name="completed_date"/>
+                    </list>
+                </field>
             </xpath>
         </field>
     </record>
