@@ -8,6 +8,9 @@ Các module tùy chỉnh cho Odoo 18 nằm trong `custom_addons/`:
   serial và báo cáo hậu mãi dùng chung. Chỉ quản lý kho được duyệt đổi; không hỗ trợ hoàn
   tiền. Thông tin lỗi, trạng thái và ngày kết thúc từ hệ thống nguồn cũng được
   lưu trên phiếu.
+  Điều kiện tiếp nhận, luân chuyển tồn kho và phân quyền quản lý kho được áp
+  dụng; lịch sử các phiếu hậu mãi được liên kết trực tiếp với từng serial để
+  tra cứu lại trên cả phiếu bảo hành và hồ sơ serial.
 - `custom_crm`: bổ sung quy trình CRM tạo combo sản phẩm và quản lý sản phẩm
   bán hàng.
 - `custom_sales`: kiểm tra tồn kho khi xác nhận đơn, kiểm tra serial thực giao,

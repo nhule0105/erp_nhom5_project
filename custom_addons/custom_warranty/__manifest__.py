@@ -7,9 +7,12 @@
     'depends': ['sale_management', 'stock'],
     'data': [
         'data/warranty_sequence.xml',
+        'data/warranty_cron.xml',
+        'security/warranty_security.xml',
         'security/ir.model.access.csv',
         'views/warranty_views.xml',
         'views/warranty_report_views.xml',
+        'reports/warranty_receipt_report.xml',
         'views/warranty_menus.xml',
     ],
     'demo': [

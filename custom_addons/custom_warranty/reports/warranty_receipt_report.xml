@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_warranty_receipt_report" model="ir.actions.report">
+        <field name="name">Biên nhận bảo hành</field>
+        <field name="model">warranty.ticket</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">custom_warranty.warranty_receipt_document</field>
+        <field name="report_file">custom_warranty.warranty_receipt_document</field>
+        <field name="binding_model_id" ref="model_warranty_ticket"/>
+        <field name="binding_type">report</field>
+        <field name="print_report_name">'Bien_nhan_bao_hanh_%s' % (object.ticket_code)</field>
+    </record>
+
+    <template id="warranty_receipt_document">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="ticket">
+                <t t-call="web.external_layout">
+                    <div class="page">
+                        <h2 class="text-center">BIÊN NHẬN BẢO HÀNH</h2>
+                        <p class="text-center">
+                            Mã phiếu: <strong t-field="ticket.ticket_code"/>
+                        </p>
+
+                        <h4>Thông tin tiếp nhận</h4>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr>
+                                    <td><strong>Khách hàng</strong></td>
+                                    <td><span t-field="ticket.partner_id"/></td>
+                                    <td><strong>Số điện thoại</strong></td>
+                                    <td><span t-field="ticket.customer_phone"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Sản phẩm</strong></td>
+                                    <td><span t-field="ticket.product_id"/></td>
+                                    <td><strong>Serial Number</strong></td>
+                                    <td><span t-field="ticket.serial_id"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Ngày tiếp nhận</strong></td>
+                                    <td><span t-field="ticket.receive_date"/></td>
+                                    <td><strong>Hạn bảo hành</strong></td>
+                                    <td><span t-field="ticket.warranty_end_date"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Tình trạng bảo hành</strong></td>
+                                    <td><span t-field="ticket.warranty_status"/></td>
+                                    <td><strong>Ngày hẹn trả</strong></td>
+                                    <td><span t-field="ticket.promised_return_date"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h4>Tình trạng và xử lý</h4>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr>
+                                    <td><strong>Mô tả lỗi</strong></td>
+                                    <td><span t-field="ticket.fault_description"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Tình trạng ngoại quan</strong></td>
+                                    <td><span t-field="ticket.condition_notes"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Kỹ thuật viên phụ trách</strong></td>
+                                    <td><span t-field="ticket.technician_id"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <p>
+                            Biên nhận này xác nhận việc tiếp nhận thiết bị để kiểm tra/sửa chữa.
+                            Đây không phải là xác nhận chữ ký điện tử hoặc kết luận thanh toán.
+                        </p>
+                        <div class="row mt-5">
+                            <div class="col-6 text-center">
+                                <strong>Khách hàng</strong>
+                                <br/>
+                                <br/>
+                                <br/>
+                                (Ký, ghi rõ họ tên)
+                            </div>
+                            <div class="col-6 text-center">
+                                <strong>Nhân viên tiếp nhận</strong>
+                                <br/>
+                                <br/>
+                                <br/>
+                                (Ký, ghi rõ họ tên)
+                            </div>
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

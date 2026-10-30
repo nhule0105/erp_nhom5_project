@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ir_cron_warranty_ticket_sla" model="ir.cron">
+        <field name="name">Cập nhật quá hạn SLA phiếu bảo hành</field>
+        <field name="model_id" ref="model_warranty_ticket"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_update_sla_overdue()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="numbercall">-1</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

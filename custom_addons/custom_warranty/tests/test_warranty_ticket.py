@@ -1,3 +1,4 @@
+import base64
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -26,6 +27,159 @@ class TestWarrantyTicket(TransactionCase):
             **values,
         })
 
+    def _create_repair_ticket(self, product, name, **lot_values):
+        partner = self.env['res.partner'].create({
+            'name': 'Warranty Policy Customer ' + name,
+        })
+        lot = self._create_lot(
+            product,
+            name,
+            x_customer_id=partner.id,
+            x_custom_status='sold',
+            **lot_values,
+        )
+        return self.env['warranty.ticket'].create({
+            'serial_id': lot.id,
+            'ticket_type': 'repair',
+        })
+
+    def test_warranty_decision_free_for_valid_manufacturer_fault(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-FREE-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+
+        self.assertEqual(ticket.warranty_decision, 'pending')
+        ticket.write({
+            'issue_category': 'nsx',
+            'warranty_decision': 'free',
+            'warranty_decision_reason': 'Còn hạn và xác định lỗi nhà sản xuất.',
+        })
+        ticket.action_confirm_warranty_decision()
+
+        self.assertEqual(ticket.warranty_decision, 'free')
+        self.assertEqual(ticket.warranty_decision_user_id, self.env.user)
+        self.assertTrue(ticket.warranty_decision_date)
+
+    def test_warranty_decision_paid_for_valid_user_fault(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-PAID-USER-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+
+        ticket.write({
+            'issue_category': 'user',
+            'warranty_decision': 'paid',
+            'warranty_decision_reason': 'Còn hạn nhưng lỗi do người dùng.',
+        })
+        ticket.action_confirm_warranty_decision()
+
+        self.assertEqual(ticket.warranty_decision, 'paid')
+
+    def test_warranty_decision_paid_for_expired_warranty(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-PAID-EXPIRED-001',
+            x_warranty_end_date=fields.Date.today() - timedelta(days=1),
+        )
+
+        ticket.write({
+            'issue_category': 'nsx',
+            'warranty_decision': 'paid',
+            'warranty_decision_reason': 'Đã hết hạn bảo hành.',
+        })
+        ticket.action_confirm_warranty_decision()
+
+        self.assertEqual(ticket.warranty_status, 'expired')
+        self.assertEqual(ticket.warranty_decision, 'paid')
+
+    def test_warranty_decision_waits_for_unknown_cause(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-UNKNOWN-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+
+        with self.assertRaises(ValidationError):
+            ticket.write({
+                'warranty_decision': 'free',
+                'warranty_decision_reason': 'Chưa đủ kết quả kiểm tra.',
+            })
+
+        self.assertEqual(ticket.warranty_decision, 'pending')
+        self.assertFalse(ticket.warranty_decision_user_id)
+
+    def test_intake_checklist_attachments_assignment_and_sla(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'INTAKE-CHECKLIST-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+        attachment = self.env['ir.attachment'].create({
+            'name': 'intake-device.jpg',
+            'datas': base64.b64encode(b'fake-image-for-test'),
+            'mimetype': 'image/jpeg',
+        })
+        ticket.write({
+            'screen_condition': 'Màn hình không nứt, có một điểm sáng.',
+            'keyboard_condition': 'Đủ phím, một phím bị kẹt.',
+            'battery_charger_condition': 'Có sạc, pin còn nhận.',
+            'accessories_condition': 'Thiếu túi chống sốc.',
+            'intake_notes': 'Đã kiểm tra ngoại quan cùng khách.',
+            'inspection_attachment_ids': [(4, attachment.id)],
+            'technician_id': self.env.user.id,
+            'promised_return_date': fields.Date.today() - timedelta(days=1),
+        })
+
+        self.assertEqual(ticket.technician_id, self.env.user)
+        self.assertTrue(ticket.technician_assigned_date)
+        self.assertIn(attachment, ticket.inspection_attachment_ids)
+        self.assertTrue(ticket.is_overdue)
+
+        ticket.action_start_repair()
+        self.assertTrue(ticket.repair_start_datetime)
+        ticket.repair_resolution = 'Đã sửa và kiểm tra đạt.'
+        ticket.action_complete_repair()
+        self.assertTrue(ticket.repair_completed_datetime)
+        self.assertGreaterEqual(ticket.processing_duration_hours, 0)
+        self.assertFalse(ticket.is_overdue)
+
+    def test_sla_defaults_and_allows_adjustment(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(product, 'SLA-DEFAULT-001')
+
+        self.assertEqual(ticket.sla_days, 3)
+        self.assertEqual(
+            ticket.promised_return_date,
+            ticket.receive_date + timedelta(days=3),
+        )
+
+        adjusted_date = ticket.receive_date + timedelta(days=7)
+        ticket.promised_return_date = adjusted_date
+        self.assertEqual(ticket.promised_return_date, adjusted_date)
+
+    def test_sla_cron_marks_overdue_and_ignores_completed(self):
+        product = self._create_product()
+        overdue_ticket = self._create_repair_ticket(product, 'SLA-CRON-OVERDUE-001')
+        completed_ticket = self._create_repair_ticket(product, 'SLA-CRON-DONE-001')
+        overdue_ticket.promised_return_date = fields.Date.today() - timedelta(days=1)
+        completed_ticket.write({
+            'promised_return_date': fields.Date.today() - timedelta(days=1),
+            'state': 'done',
+        })
+
+        self.env['warranty.ticket']._cron_update_sla_overdue()
+
+        self.assertTrue(overdue_ticket.is_overdue)
+        self.assertFalse(completed_ticket.is_overdue)
+
     def test_repair_workflow_updates_serial_status(self):
         product = self._create_product()
         partner = self.env['res.partner'].create({
@@ -49,6 +203,8 @@ class TestWarrantyTicket(TransactionCase):
         self.assertEqual(ticket.partner_id, partner)
         self.assertEqual(ticket.days_remaining, 355)
         self.assertEqual(ticket.warranty_status, 'valid')
+        self.assertIn(ticket, lot.warranty_ticket_ids)
+        self.assertIn(ticket, ticket.serial_history_ids)
         phone_lookup = self.env['warranty.ticket'].new({'customer_phone': partner.phone})
         phone_lookup._onchange_customer_phone()
         self.assertEqual(phone_lookup.serial_id, lot)
@@ -525,3 +681,10 @@ class TestWarrantyTicket(TransactionCase):
         self.assertTrue(self.env.ref(
             'custom_warranty.view_warranty_operations_pivot'
         ))
+
+    def test_warranty_receipt_report_and_security_groups_are_loaded(self):
+        report = self.env.ref('custom_warranty.action_warranty_receipt_report')
+        self.assertEqual(report.model, 'warranty.ticket')
+        self.assertEqual(report.report_type, 'qweb-pdf')
+        self.assertTrue(self.env.ref('custom_warranty.group_warranty_technician'))
+        self.assertTrue(self.env.ref('custom_warranty.group_warranty_manager'))
