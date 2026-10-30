@@ -51,5 +51,9 @@
             <field name="name">Tai nghe</field>
             <field name="parent_id" ref="product_category_accessories"/>
         </record>
+        <record id="product_category_combo" model="product.category">
+            <field name="name">Combo</field>
+            <field name="parent_id" ref="product.product_category_all"/>
+        </record>
     </data>
 </odoo>

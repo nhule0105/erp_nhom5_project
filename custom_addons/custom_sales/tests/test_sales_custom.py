@@ -28,6 +28,171 @@ class TestSalesCustom(TransactionCase):
             })],
         })
 
+    def test_customer_code_is_generated_and_vietnamese_name_is_preserved(self):
+        first_customer = self.env['res.partner'].create({
+            'name': 'Nguyễn Vĩnh Thị Trà My',
+            'customer_rank': 1,
+        })
+        second_customer = self.env['res.partner'].create({
+            'name': 'Trần Thị Bình',
+            'customer_rank': 1,
+        })
+
+        self.assertEqual(first_customer.name, 'Nguyễn Vĩnh Thị Trà My')
+        self.assertRegex(first_customer.ref, r'^KH\d{5}$')
+        self.assertRegex(second_customer.ref, r'^KH\d{5}$')
+        self.assertEqual(
+            int(second_customer.ref[2:]),
+            int(first_customer.ref[2:]) + 1,
+        )
+
+    def test_salesperson_can_create_edit_and_delete_combo_rules(self):
+        salesperson = self.env['res.users'].with_context(
+            no_reset_password=True
+        ).create({
+            'name': 'Sales Combo Manager',
+            'login': 'sales-combo-manager',
+            'groups_id': [fields.Command.set([
+                self.env.ref('base.group_user').id,
+                self.env.ref('sales_team.group_sale_salesman').id,
+            ])],
+        })
+        combo_model = self.env['custom.crm.combo'].with_user(salesperson)
+
+        combo = combo_model.create({'name': 'Salesperson Test Combo'})
+        combo.write({'min_order_total': 1_000_000})
+        self.assertEqual(combo.min_order_total, 1_000_000)
+        combo.unlink()
+        self.assertFalse(combo.exists())
+
+    def test_selected_product_shows_details_and_available_stock(self):
+        product = self._create_product(tracking='serial')
+        product.product_tmpl_id.write({
+            'lifecycle_product_type': 'laptop',
+            'brand': 'Test Brand',
+            'cpu': 'Test CPU',
+            'ram': '16 GB',
+        })
+        warehouse = self.env['stock.warehouse'].search(
+            [('company_id', '=', self.env.company.id)],
+            limit=1,
+        )
+        available_lot = self.env['stock.lot'].create({
+            'name': 'SALES-CUSTOM-DETAILS-AVAILABLE',
+            'product_id': product.id,
+            'company_id': self.env.company.id,
+            'x_custom_status': 'available',
+            'lifecycle_status': 'available',
+        })
+        unavailable_lot = self.env['stock.lot'].create({
+            'name': 'SALES-CUSTOM-DETAILS-SOLD',
+            'product_id': product.id,
+            'company_id': self.env.company.id,
+            'x_custom_status': 'sold',
+            'lifecycle_status': 'issued',
+        })
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            warehouse.lot_stock_id,
+            1,
+            lot_id=available_lot,
+        )
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            warehouse.lot_stock_id,
+            1,
+            lot_id=unavailable_lot,
+        )
+
+        order = self._create_order(product)
+        line = order.order_line
+        self.assertIn('Thương hiệu: Test Brand', line.x_selected_product_details)
+        self.assertIn('CPU: Test CPU', line.x_selected_product_details)
+        self.assertEqual(line.x_available_stock_qty, 1)
+        self.assertFalse(line.x_available_serial_lot_ids)
+        self.assertEqual(available_lot.x_custom_status, 'available')
+
+        self.env['stock.quant']._update_reserved_quantity(
+            product,
+            warehouse.lot_stock_id,
+            1,
+            lot_id=available_lot,
+        )
+        self.assertEqual(line.x_available_stock_qty, 0)
+        with self.assertRaises(ValidationError):
+            order.action_confirm()
+
+    def test_confirmation_applies_the_matching_combo_gift_once(self):
+        sold_product = self._create_product()
+        gift_product = self._create_product()
+        warehouse = self.env['stock.warehouse'].search(
+            [('company_id', '=', self.env.company.id)],
+            limit=1,
+        )
+        self.env['stock.quant']._update_available_quantity(
+            sold_product,
+            warehouse.lot_stock_id,
+            1,
+        )
+        self.env['stock.quant']._update_available_quantity(
+            gift_product,
+            warehouse.lot_stock_id,
+            1,
+        )
+        combo = self.env['custom.crm.combo'].create({
+            'name': 'Sales Custom Test Gift Combo',
+            'combo_tier': '13m_to_15m',
+            'min_order_total': 13_000_000,
+            'max_order_total': 15_000_000,
+            'gift_value_limit': 2_000_000,
+            'component_product_ids': [fields.Command.set([gift_product.id])],
+        })
+        order = self._create_order(sold_product)
+        order.order_line.write({
+            'price_unit': 13_500_000,
+            'tax_id': [fields.Command.clear()],
+        })
+
+        self.assertEqual(order.x_promotional_combo_id, combo)
+        self.assertEqual(order.x_promotional_gift_product_ids, gift_product)
+        self.assertIn('được thêm vào đơn', order.x_promotional_combo_message)
+
+        order.action_confirm()
+
+        gifts = order.order_line.filtered('is_combo_gift')
+        self.assertEqual(len(gifts), 1)
+        self.assertEqual(gifts.product_id, gift_product)
+        self.assertEqual(gifts.price_unit, 0)
+        self.assertIn(combo.name, gifts.name)
+
+    def test_promotional_combo_display_updates_with_order_total(self):
+        product = self._create_product()
+        gift_product = self._create_product()
+        self.env['custom.crm.combo'].search([
+            ('company_id', '=', self.env.company.id),
+        ]).write({'active': False})
+        combo = self.env['custom.crm.combo'].create({
+            'name': 'Sales Custom Display Combo',
+            'min_order_total': 1_000_000,
+            'max_order_total': 2_000_000,
+            'component_product_ids': [fields.Command.set([gift_product.id])],
+        })
+        order = self._create_order(product)
+        line = order.order_line
+        line.write({
+            'price_unit': 1_500_000,
+            'tax_id': [fields.Command.clear()],
+        })
+
+        self.assertEqual(order.x_promotional_combo_id, combo)
+        self.assertEqual(order.x_promotional_gift_product_ids, gift_product)
+
+        line.write({'price_unit': 500_000})
+
+        self.assertFalse(order.x_promotional_combo_id)
+        self.assertFalse(order.x_promotional_gift_product_ids)
+        self.assertIn('Không có combo', order.x_promotional_combo_message)
+
     def test_confirmation_rejects_insufficient_stock(self):
         product = self._create_product()
         order = self._create_order(product)
@@ -85,6 +250,11 @@ class TestSalesCustom(TransactionCase):
             })
 
         result = picking.button_validate()
+        if isinstance(result, dict):
+            wizard = self.env[result['res_model']].with_context(
+                result['context']
+            ).create({})
+            result = wizard.process()
         self.assertFalse(isinstance(result, dict), 'The test delivery needs a wizard.')
 
         sale_date = fields.Date.context_today(self.env.user)

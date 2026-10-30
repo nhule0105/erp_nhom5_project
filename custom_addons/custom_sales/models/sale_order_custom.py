@@ -17,20 +17,27 @@ class SaleOrder(models.Model):
         string='Serial đã giao',
         compute='_compute_serial_lot_ids',
     )
+    x_promotional_combo_id = fields.Many2one(
+        'custom.crm.combo',
+        string='Combo khuyến mãi',
+        compute='_compute_promotional_combo',
+    )
+    x_promotional_gift_product_ids = fields.Many2many(
+        'product.product',
+        string='Quà tặng theo combo',
+        compute='_compute_promotional_combo',
+    )
+    x_promotional_combo_message = fields.Char(
+        string='Thông tin khuyến mãi',
+        compute='_compute_promotional_combo',
+    )
 
     def _apply_promotional_combo(self):
-        Combo = self.env['custom.crm.combo']
         SaleLine = self.env['sale.order.line']
         for order in self:
             if order.state not in ('draft', 'sent'):
                 continue
-            combo = Combo.search([
-                ('active', '=', True),
-                ('company_id', '=', order.company_id.id),
-            ], order='min_order_total desc, id desc')
-            combo = combo.filtered(
-                lambda rule: rule.matches_order_total(order.amount_total)
-            )[:1]
+            combo = order._get_matching_promotional_combo()
             if not combo:
                 continue
             existing_gifts = order.order_line.filtered(
@@ -47,6 +54,28 @@ class SaleOrder(models.Model):
                     'is_combo_gift': True,
                     'x_combo_rule_id': combo.id,
                 })
+
+    def _get_matching_promotional_combo(self):
+        self.ensure_one()
+        combos = self.env['custom.crm.combo'].search([
+            ('active', '=', True),
+            ('company_id', '=', self.company_id.id),
+        ], order='min_order_total desc, id desc')
+        return combos.filtered(
+            lambda rule: rule.matches_order_total(self.amount_total)
+        )[:1]
+
+    @api.depends('amount_total', 'company_id')
+    def _compute_promotional_combo(self):
+        for order in self:
+            combo = order._get_matching_promotional_combo()
+            order.x_promotional_combo_id = combo
+            order.x_promotional_gift_product_ids = combo.component_product_ids
+            order.x_promotional_combo_message = (
+                'Quà tặng được thêm vào đơn khi xác nhận.'
+                if combo
+                else 'Không có combo áp dụng cho tổng tiền hiện tại.'
+            )
 
     def action_confirm(self):
         for order in self:
@@ -133,6 +162,7 @@ class SaleOrder(models.Model):
                 for lot_id, free_quantity in free_quantity_by_lot.items()
                 if free_quantity > 0
                 and lots_by_id[lot_id].x_custom_status == 'available'
+                and lots_by_id[lot_id].lifecycle_status == 'available'
             ])
             required_serials = int(round(required_quantity))
             if len(available_lots) < required_serials:
@@ -299,11 +329,13 @@ class StockPicking(models.Model):
                         )
                     seen_lot_ids.add(lot.id)
 
-                    if lot.x_custom_status != 'available':
+                    if (
+                        lot.x_custom_status != 'available'
+                        or lot.lifecycle_status != 'available'
+                    ):
                         raise ValidationError(
                             f'S/N {lot.name} không còn khả dụng hoặc đã được bán.'
                         )
-
                     source_quants = self.env['stock.quant'].search([
                         ('lot_id', '=', lot.id),
                         ('location_id', 'child_of', move.location_id.id),
@@ -369,12 +401,266 @@ class ResPartner(models.Model):
         domain=[('state', 'in', ['sale', 'done'])],
     )
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        sequence = self.env['ir.sequence']
+        customer_search = (
+            self.env.context.get('res_partner_search_mode') == 'customer'
+        )
+        for vals in vals_list:
+            rank = vals.get(
+                'customer_rank',
+                self.env.context.get('default_customer_rank', 0),
+            )
+            if (
+                not vals.get('ref')
+                and not vals.get('parent_id')
+                and (rank or customer_search)
+            ):
+                vals['ref'] = sequence.next_by_code(
+                    'custom.sales.customer.v2'
+                )
+                if not vals['ref']:
+                    raise ValidationError(
+                        'Không tìm thấy chuỗi tự sinh mã khách hàng.'
+                    )
+        return super().create(vals_list)
+
+    def write(self, vals):
+        result = super().write(vals)
+        if vals.get('customer_rank'):
+            customers_without_code = self.filtered(
+                lambda partner: not partner.ref and not partner.parent_id
+            )
+            for partner in customers_without_code:
+                code = self.env['ir.sequence'].next_by_code(
+                    'custom.sales.customer.v2'
+                )
+                if not code:
+                    raise ValidationError(
+                        'Không tìm thấy chuỗi tự sinh mã khách hàng.'
+                    )
+                partner.write({'ref': code})
+        return result
+
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
     is_combo_gift = fields.Boolean(
         string='Quà tặng combo',
+        default=False,
+        copy=False,
+    )
+    combo_parent_line_id = fields.Many2one(
+        'sale.order.line',
+        string='Thuộc Combo',
         copy=False,
         readonly=True,
+        ondelete='cascade',
     )
+    combo_component_line_ids = fields.One2many(
+        'sale.order.line',
+        'combo_parent_line_id',
+        string='Thành phần Combo',
+        copy=False,
+    )
+    combo_serial_lot_ids = fields.Many2many(
+        'stock.lot',
+        'sale_order_line_combo_serial_rel',
+        'sale_line_id',
+        'lot_id',
+        string='Serial dự kiến của Combo',
+        copy=False,
+        domain="[('product_id', '=', product_id), ('product_qty', '>', 0), "
+        "('x_custom_status', '=', 'available'), ('lifecycle_status', '=', 'available')]",
+        help='Chọn Serial ở báo giá nếu đã biết; nếu chưa, nhân viên chọn trên phiếu giao.',
+    )
+    x_selected_product_details = fields.Text(
+        string='Thông tin sản phẩm',
+        compute='_compute_selected_product_details',
+    )
+    x_available_serial_lot_ids = fields.Many2many(
+        'stock.lot',
+        string='Serial sản phẩm/combo',
+        compute='_compute_selected_product_details',
+        help='Giữ tương thích với giao diện đã lưu; danh sách Serial không còn '
+        'hiển thị trên đơn bán.',
+    )
+    x_available_stock_qty = fields.Float(
+        string='Còn khả dụng',
+        compute='_compute_selected_product_details',
+        digits='Product Unit of Measure',
+        help='Số lượng còn khả dụng trong kho của đơn. Với sản phẩm theo dõi Serial, '
+        'chỉ tính các Serial còn hàng và chưa bị giữ chỗ.',
+    )
+
+    @api.depends(
+        'product_id',
+        'order_id.warehouse_id',
+        'product_uom_qty',
+        'product_id.stock_quant_ids.location_id',
+        'product_id.stock_quant_ids.quantity',
+        'product_id.stock_quant_ids.reserved_quantity',
+        'product_id.stock_quant_ids.lot_id.x_custom_status',
+        'product_id.stock_quant_ids.lot_id.lifecycle_status',
+        'product_id.product_tmpl_id.brand',
+        'product_id.product_tmpl_id.lifecycle_product_type',
+        'product_id.product_tmpl_id.cpu',
+        'product_id.product_tmpl_id.ram',
+        'product_id.product_tmpl_id.storage',
+        'product_id.product_tmpl_id.gpu',
+        'product_id.product_tmpl_id.mouse_connection',
+        'product_id.product_tmpl_id.mouse_dpi',
+        'product_id.product_tmpl_id.mouse_buttons',
+        'product_id.product_tmpl_id.mouse_color',
+        'product_id.product_tmpl_id.backpack_material',
+        'product_id.product_tmpl_id.backpack_size',
+        'product_id.product_tmpl_id.backpack_capacity',
+        'product_id.product_tmpl_id.backpack_color',
+    )
+    def _compute_selected_product_details(self):
+        for line in self:
+            product = line.product_id
+            if not product:
+                line.x_selected_product_details = False
+                line.x_available_serial_lot_ids = False
+                line.x_available_stock_qty = 0.0
+                continue
+
+            line.x_available_serial_lot_ids = False
+            template = product.product_tmpl_id
+            details = line._get_product_detail_lines(template)
+            line.x_available_stock_qty = line._get_available_stock_quantity(
+                product
+            )
+            if product.tracking in ('lot', 'serial') and not line.x_available_stock_qty:
+                details.append('Chưa có Serial khả dụng trong kho.')
+            elif product.tracking == 'none':
+                details.append('Sản phẩm không theo dõi Serial Number.')
+
+            line.x_selected_product_details = '\n'.join(details)
+
+    def _get_available_stock_quantity(self, product):
+        self.ensure_one()
+        warehouse = self.order_id.warehouse_id
+        if not warehouse or not warehouse.lot_stock_id:
+            return 0.0
+        if product.tracking == 'serial':
+            return float(len(self._get_available_product_serials(product)))
+        return max(
+            product.with_context(
+                location=warehouse.lot_stock_id.id,
+                allowed_company_ids=[self.order_id.company_id.id],
+            ).free_qty,
+            0.0,
+        )
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        vals_list = [
+            {
+                **vals,
+                **({'price_unit': 0.0} if vals.get('is_combo_gift') else {}),
+            }
+            for vals in vals_list
+        ]
+        return super().create(vals_list)
+
+    def write(self, vals):
+        vals = dict(vals)
+        if vals.get('is_combo_gift'):
+            vals['price_unit'] = 0.0
+        return super().write(vals)
+
+    @api.onchange('is_combo_gift')
+    def _onchange_is_combo_gift(self):
+        for line in self:
+            if line.is_combo_gift:
+                line.price_unit = 0.0
+
+    @staticmethod
+    def _get_product_detail_lines(template):
+        product_type_labels = {
+            'laptop': 'Laptop',
+            'mouse': 'Chuột',
+            'backpack': 'Ba lô',
+        }
+        details = []
+        product_type = template.lifecycle_product_type
+        if product_type:
+            details.append(
+                'Loại: %s' % product_type_labels.get(product_type, product_type)
+            )
+        if template.brand:
+            details.append('Thương hiệu: %s' % template.brand)
+
+        for label, value in (
+            ('CPU', template.cpu),
+            ('RAM', template.ram),
+            ('Ổ cứng', template.storage),
+            ('Card màn hình', template.gpu),
+            ('DPI chuột', template.mouse_dpi),
+            ('Số nút chuột', template.mouse_buttons),
+            ('Màu sắc chuột', template.mouse_color),
+            ('Chất liệu ba lô', template.backpack_material),
+            ('Kích thước ba lô', template.backpack_size),
+            ('Sức chứa ba lô', template.backpack_capacity),
+            ('Màu sắc ba lô', template.backpack_color),
+        ):
+            if value:
+                details.append('%s: %s' % (label, value))
+
+        if template.mouse_connection:
+            connection_labels = {
+                'wired': 'Có dây',
+                'wireless': 'Không dây',
+                'bluetooth': 'Bluetooth',
+            }
+            details.append(
+                'Kết nối chuột: %s'
+                % connection_labels.get(
+                    template.mouse_connection,
+                    template.mouse_connection,
+                )
+            )
+        return details
+
+    def _get_available_product_serials(self, product):
+        self.ensure_one()
+        warehouse = self.order_id.warehouse_id
+        if not warehouse or not warehouse.lot_stock_id:
+            return self.env['stock.lot']
+
+        quants = self.env['stock.quant'].search([
+            ('product_id', '=', product.id),
+            ('location_id', 'child_of', warehouse.lot_stock_id.id),
+            ('location_id.usage', '=', 'internal'),
+            ('company_id', 'in', [False, self.order_id.company_id.id]),
+            ('lot_id', '!=', False),
+        ])
+        available_quantity_by_lot = {}
+        lots_by_id = {}
+        for quant in quants:
+            lot = quant.lot_id
+            if (
+                lot.x_custom_status != 'available'
+                or lot.lifecycle_status != 'available'
+            ):
+                continue
+            free_quantity = quant.quantity - quant.reserved_quantity
+            available_quantity_by_lot[lot.id] = (
+                available_quantity_by_lot.get(lot.id, 0.0) + free_quantity
+            )
+            lots_by_id[lot.id] = lot
+
+        return self.env['stock.lot'].browse(
+            sorted(
+                (
+                    lot_id
+                    for lot_id, quantity in available_quantity_by_lot.items()
+                    if quantity > 0
+                ),
+                key=lambda lot_id: lots_by_id[lot_id].name,
+            )
+        )

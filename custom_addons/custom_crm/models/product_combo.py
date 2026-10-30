@@ -206,7 +206,8 @@ class ProductCombo(models.Model):
     @api.depends('component_product_ids')
     def _compute_available_combo_inventory(self):
         for combo in self:
-            if not combo.component_product_ids:
+            component_products = combo.component_product_ids
+            if not component_products:
                 combo.available_combo_count = 0
                 combo.component_serial_summary = False
                 continue

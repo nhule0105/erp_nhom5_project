@@ -1,5 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="view_product_template_custom_crm_kanban" model="ir.ui.view">
+        <field name="name">product.template.custom.crm.kanban</field>
+        <field name="model">product.template</field>
+        <field name="arch" type="xml">
+            <kanban>
+                <field name="name"/>
+                <field name="default_code"/>
+                <field name="brand"/>
+                <field name="categ_id"/>
+                <field name="lifecycle_product_type"/>
+                <field name="cpu"/>
+                <field name="ram"/>
+                <field name="storage"/>
+                <field name="gpu"/>
+                <field name="mouse_connection"/>
+                <field name="mouse_dpi"/>
+                <field name="mouse_buttons"/>
+                <field name="mouse_color"/>
+                <field name="backpack_material"/>
+                <field name="backpack_size"/>
+                <field name="backpack_capacity"/>
+                <field name="backpack_color"/>
+                <field name="qty_available"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click">
+                            <strong>
+                                <field name="default_code"/>
+                                <field name="name"/>
+                            </strong>
+                            <div><i>Brand: </i><field name="brand"/></div>
+                            <div><i>Category: </i><field name="categ_id"/></div>
+                            <div t-if="record.lifecycle_product_type.raw_value != 'mouse' and record.lifecycle_product_type.raw_value != 'backpack'">
+                                <div><i>CPU: </i><field name="cpu"/></div>
+                                <div><i>RAM: </i><field name="ram"/></div>
+                                <div><i>Storage: </i><field name="storage"/></div>
+                                <div><i>GPU: </i><field name="gpu"/></div>
+                            </div>
+                            <div t-if="record.lifecycle_product_type.raw_value == 'mouse'">
+                                <div><i>Connection: </i><field name="mouse_connection"/></div>
+                                <div><i>DPI: </i><field name="mouse_dpi"/></div>
+                                <div><i>Buttons: </i><field name="mouse_buttons"/></div>
+                                <div><i>Color: </i><field name="mouse_color"/></div>
+                            </div>
+                            <div t-if="record.lifecycle_product_type.raw_value == 'backpack'">
+                                <div><i>Material: </i><field name="backpack_material"/></div>
+                                <div><i>Size: </i><field name="backpack_size"/></div>
+                                <div><i>Capacity: </i><field name="backpack_capacity"/></div>
+                                <div><i>Color: </i><field name="backpack_color"/></div>
+                            </div>
+                            <div><i>Available quantity: </i><field name="qty_available"/></div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
     <record id="view_product_template_form_custom_crm" model="ir.ui.view">
         <field name="name">product.template.form.custom.crm</field>
         <field name="model">product.template</field>

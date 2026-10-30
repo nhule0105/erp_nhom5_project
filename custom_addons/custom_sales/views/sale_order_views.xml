@@ -8,14 +8,32 @@
             <xpath expr="//field[@name='partner_id']" position="after">
                 <field name="x_customer_code" readonly="1"/>
             </xpath>
+            <xpath expr="//field[@name='order_line']" position="before">
+                <group string="Combo khuyến mãi">
+                    <field name="x_promotional_combo_id" readonly="1"/>
+                    <field name="x_promotional_gift_product_ids"
+                           widget="many2many_tags"
+                           readonly="1"/>
+                    <field name="x_promotional_combo_message" readonly="1" nolabel="1"/>
+                </group>
+            </xpath>
             <xpath expr="//field[@name='order_line']/list/field[@name='product_id']" position="after">
                 <field name="is_combo_gift" optional="show" widget="boolean"/>
                 <field name="x_combo_rule_id" optional="hide"/>
+                <field name="x_selected_product_details"
+                       string="Thông tin sản phẩm"
+                       optional="show"
+                       readonly="1"/>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_id']"
+                   position="after">
+                <field name="x_selected_product_details" readonly="1"/>
             </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Serial bán hàng" name="delivered_serials">
                     <div class="alert alert-info" role="alert">
-                        Serial được gắn từ lúc nhập kho và tự phân bổ khi xác nhận đơn bán.
+                        Đơn bán chỉ hiển thị số lượng còn khả dụng.
+                        Hãy quét/chọn đúng Serial thực tế trên phiếu giao.
                         Trạng thái chỉ chuyển sang Đã bán sau khi phiếu giao hoàn tất.
                     </div>
                     <field name="serial_lot_ids" readonly="1">
@@ -32,6 +50,34 @@
                 </page>
             </xpath>
         </field>
+    </record>
+
+    <record id="action_sale_shared_categories" model="ir.actions.act_window">
+        <field name="name">Danh mục dùng chung Kho</field>
+        <field name="res_model">product.category</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <delete id="menu_sale_shared_products" model="ir.ui.menu"/>
+    <delete id="action_sale_shared_products" model="ir.actions.act_window"/>
+
+    <menuitem id="menu_sale_shared_categories"
+              name="Danh mục (Kho)"
+              parent="sale.product_menu_catalog"
+              action="action_sale_shared_categories"
+              sequence="20"
+              groups="base.group_no_one"/>
+    <menuitem id="menu_sale_custom_combo"
+              name="Quản lý Combo khuyến mãi"
+              parent="sale.product_menu_catalog"
+              action="custom_crm.action_custom_crm_combo"
+              sequence="30"
+              groups="base.group_no_one"/>
+    <record id="menu_sale_shared_categories" model="ir.ui.menu">
+        <field name="groups_id" eval="[(6, 0, [ref('base.group_no_one')])]"/>
+    </record>
+    <record id="menu_sale_custom_combo" model="ir.ui.menu">
+        <field name="groups_id" eval="[(6, 0, [ref('base.group_no_one')])]"/>
     </record>
 
     <record id="view_sales_order_list_customer_code" model="ir.ui.view">
@@ -90,8 +136,8 @@
                 <div class="alert alert-info"
                      role="alert"
                      invisible="picking_type_code != 'outgoing'">
-                    Serial đã được gắn từ lúc nhập kho và tự hiển thị trên phiếu giao.
-                    Không cần nhập lại Serial thủ công.
+                    Quét/chọn đúng Serial thực tế còn trong kho cho từng sản phẩm
+                    trước khi xác nhận giao hàng.
                 </div>
             </xpath>
             <xpath expr="//field[@name='move_ids_without_package']/list/field[@name='lot_ids']"
@@ -99,7 +145,7 @@
                 <attribute name="string">Quét S/N thực tế</attribute>
                 <attribute name="optional">show</attribute>
                 <attribute name="options">{'no_create': True, 'no_quick_create': True}</attribute>
-                <attribute name="domain">[('product_id', '=', product_id), ('x_custom_status', '=', 'available')]</attribute>
+                <attribute name="domain">[('product_id', '=', product_id), ('product_qty', '&gt;', 0), ('x_custom_status', '=', 'available'), ('lifecycle_status', '=', 'available')]</attribute>
             </xpath>
         </field>
     </record>
