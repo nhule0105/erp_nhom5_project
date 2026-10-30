@@ -1,3 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_warranty_ticket_user,warranty.ticket user,model_warranty_ticket,stock.group_stock_user,1,1,1,0
 access_warranty_ticket_manager,warranty.ticket manager,model_warranty_ticket,stock.group_stock_manager,1,1,1,1
+access_warranty_ticket_technician,warranty.ticket technician,model_warranty_ticket,custom_warranty.group_warranty_technician,1,1,1,0
+access_warranty_ticket_warranty_manager,warranty.ticket warranty manager,model_warranty_ticket,custom_warranty.group_warranty_manager,1,1,1,1

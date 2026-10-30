@@ -10,6 +10,8 @@ class WarrantyTicketRepair(models.Model):
             if ticket.serial_id.x_custom_status not in ('sold', 'under_repair'):
                 raise ValidationError(_('Serial tiếp nhận phải đang được khách hàng sở hữu.'))
             ticket.state = 'fixing'
+            if not ticket.repair_start_datetime:
+                ticket.repair_start_datetime = fields.Datetime.now()
 
     def action_waiting_parts(self):
         for ticket in self:
@@ -26,4 +28,5 @@ class WarrantyTicketRepair(models.Model):
             ticket.write({
                 'state': 'done',
                 'completed_date': fields.Date.context_today(ticket),
+                'repair_completed_datetime': fields.Datetime.now(),
             })
