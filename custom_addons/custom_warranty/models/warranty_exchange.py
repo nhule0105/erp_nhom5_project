@@ -91,6 +91,10 @@ class WarrantyTicketExchange(models.Model):
             raise ValidationError(_('Serial cũ chưa được liên kết với khách hàng.'))
         if not old_sn.x_purchase_date:
             raise ValidationError(_('Serial cũ chưa có ngày mua để kiểm tra thời hạn đổi mới.'))
+        if not self._has_fault_report():
+            raise ValidationError(
+                _('Hãy chọn biểu hiện lỗi hoặc nhập mô tả lỗi trước khi xét điều kiện đổi mới.')
+            )
         if self.issue_category != 'nsx':
             raise ValidationError(
                 _('Không áp dụng đổi 1-1 cho lỗi người dùng hoặc nguyên nhân chưa xác định.')
@@ -128,6 +132,10 @@ class WarrantyTicketExchange(models.Model):
                 raise UserError(
                     _('Chỉ phiếu đổi mới chưa duyệt mới có thể chuyển sang sửa chữa/bảo hành.')
                 )
+            if ticket.approval_status != 'none':
+                raise UserError(
+                    _('Không thể chuyển luồng sau khi đã gửi duyệt hoặc duyệt; hãy xử lý yêu cầu duyệt trước.')
+                )
             reason = (ticket.exchange_referral_reason or '').strip()
             if not reason:
                 raise ValidationError(_('Hãy ghi rõ lý do chuyển phiếu sang sửa chữa/bảo hành.'))
@@ -146,6 +154,8 @@ class WarrantyTicketExchange(models.Model):
             new_sn = ticket.new_serial_id
             if ticket.state not in ('new', 'waiting_serial'):
                 raise UserError(_('Chỉ phiếu mới hoặc đang chờ serial mới được duyệt đổi.'))
+            if ticket.approval_status != 'pending':
+                raise UserError(_('Nhân viên cần gửi yêu cầu đổi mới để chủ cửa hàng duyệt.'))
             ticket._validate_exchange_policy()
             if not old_sn or not new_sn:
                 raise ValidationError(_('Phải chọn đầy đủ serial cũ và serial thay thế.'))
@@ -158,6 +168,7 @@ class WarrantyTicketExchange(models.Model):
                 'x_custom_status': 'sold',
                 'x_customer_id': old_sn.x_customer_id.id,
                 'x_purchase_date': old_sn.x_purchase_date,
+                'x_warranty_start_date': old_sn.x_warranty_start_date,
                 'x_warranty_end_date': old_sn.x_warranty_end_date,
                 'x_sale_order_id': old_sn.x_sale_order_id.id,
                 'x_sale_order_line_id': old_sn.x_sale_order_line_id.id,
@@ -170,3 +181,4 @@ class WarrantyTicketExchange(models.Model):
                 'state': 'done',
                 'completed_date': fields.Date.context_today(ticket),
             })
+            ticket._set_approval_status('approved')

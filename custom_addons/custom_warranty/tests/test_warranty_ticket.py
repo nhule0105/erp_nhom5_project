@@ -15,6 +15,7 @@ class TestWarrantyTicket(TransactionCase):
             'name': 'Warranty Test Laptop',
             'is_storable': True,
             'tracking': 'serial',
+            'exchange_item_type': 'new_device',
             'warranty_period_months': 12,
             'exchange_period_days': 30,
         })
@@ -41,7 +42,23 @@ class TestWarrantyTicket(TransactionCase):
         return self.env['warranty.ticket'].create({
             'serial_id': lot.id,
             'ticket_type': 'repair',
+            'fault_description': 'Mô tả lỗi kiểm thử.',
         })
+
+    def _submit_for_approval(self, ticket):
+        ticket.action_submit_for_approval()
+
+    def _confirm_free_decision(self, ticket):
+        ticket.write({
+            'issue_category': 'nsx',
+            'warranty_decision': 'free',
+            'warranty_decision_reason': 'Còn hạn và xác định lỗi nhà sản xuất.',
+        })
+        with self.assertRaises(UserError):
+            ticket.action_confirm_warranty_decision()
+        self._submit_for_approval(ticket)
+        self.assertEqual(ticket.approval_status, 'pending')
+        ticket.action_confirm_warranty_decision()
 
     def test_warranty_decision_free_for_valid_manufacturer_fault(self):
         product = self._create_product()
@@ -57,11 +74,53 @@ class TestWarrantyTicket(TransactionCase):
             'warranty_decision': 'free',
             'warranty_decision_reason': 'Còn hạn và xác định lỗi nhà sản xuất.',
         })
+        self._submit_for_approval(ticket)
         ticket.action_confirm_warranty_decision()
 
         self.assertEqual(ticket.warranty_decision, 'free')
         self.assertEqual(ticket.warranty_decision_user_id, self.env.user)
         self.assertTrue(ticket.warranty_decision_date)
+
+    def test_warranty_decision_generates_reason_from_selected_policy(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-AUTO-REASON-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+        ticket.write({
+            'issue_category': 'nsx',
+            'warranty_decision': 'free',
+        })
+
+        self._submit_for_approval(ticket)
+        ticket.action_confirm_warranty_decision()
+
+        self.assertIn('Lỗi nhà sản xuất', ticket.warranty_decision_reason)
+        self.assertIn('Còn hạn', ticket.warranty_decision_reason)
+        self.assertEqual(ticket.warranty_decision_user_id, self.env.user)
+
+    def test_repair_can_start_with_selected_fault_symptom(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(product, 'REPAIR-CHECKBOX-FAULT-001')
+        ticket.write({
+            'fault_description': False,
+            'symptom_power': True,
+        })
+
+        ticket.action_start_repair()
+
+        self.assertEqual(ticket.state, 'fixing')
+        self.assertEqual(ticket.fault_summary, 'Không lên nguồn')
+
+    def test_intake_summary_distinguishes_unchecked_from_checked_items(self):
+        ticket = self.env['warranty.ticket'].new()
+
+        self.assertEqual(ticket.intake_checklist_summary, 'Chưa xác nhận mục nào.')
+
+        ticket.screen_ok = True
+        self.assertIn('Đạt: Màn hình bình thường.', ticket.intake_checklist_summary)
+        self.assertIn('chưa được xác nhận', ticket.intake_checklist_summary)
 
     def test_warranty_decision_paid_for_valid_user_fault(self):
         product = self._create_product()
@@ -76,6 +135,7 @@ class TestWarrantyTicket(TransactionCase):
             'warranty_decision': 'paid',
             'warranty_decision_reason': 'Còn hạn nhưng lỗi do người dùng.',
         })
+        self._submit_for_approval(ticket)
         ticket.action_confirm_warranty_decision()
 
         self.assertEqual(ticket.warranty_decision, 'paid')
@@ -93,6 +153,7 @@ class TestWarrantyTicket(TransactionCase):
             'warranty_decision': 'paid',
             'warranty_decision_reason': 'Đã hết hạn bảo hành.',
         })
+        self._submit_for_approval(ticket)
         ticket.action_confirm_warranty_decision()
 
         self.assertEqual(ticket.warranty_status, 'expired')
@@ -114,6 +175,114 @@ class TestWarrantyTicket(TransactionCase):
 
         self.assertEqual(ticket.warranty_decision, 'pending')
         self.assertFalse(ticket.warranty_decision_user_id)
+
+    def test_regular_stock_user_cannot_confirm_warranty_decision(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-ACCESS-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+        ticket.write({
+            'issue_category': 'nsx',
+            'warranty_decision': 'free',
+            'warranty_decision_reason': 'Còn hạn và xác định lỗi nhà sản xuất.',
+        })
+        self._submit_for_approval(ticket)
+        stock_user = self.env['res.users'].create({
+            'name': 'Warranty Decision Stock User',
+            'login': 'warranty-decision-stock-user',
+            'groups_id': [(6, 0, [
+                self.env.ref('base.group_user').id,
+                self.env.ref('stock.group_stock_user').id,
+            ])],
+        })
+
+        with self.assertRaises(AccessError):
+            ticket.with_user(stock_user).action_confirm_warranty_decision()
+
+        self.assertFalse(ticket.warranty_decision_user_id)
+
+    def test_decision_audit_cannot_be_written_directly_or_changed(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-AUDIT-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+        self._confirm_free_decision(ticket)
+
+        with self.assertRaises(UserError):
+            ticket.write({'warranty_decision_reason': 'Sửa lại lịch sử'})
+        with self.assertRaises(UserError):
+            ticket.write({'warranty_decision_user_id': self.env.user.id})
+        with self.assertRaises(UserError):
+            ticket.write({'approval_status': 'approved'})
+        with self.assertRaises(UserError):
+            ticket.write({'issue_category': 'user'})
+        with self.assertRaises(UserError):
+            ticket.action_confirm_warranty_decision()
+
+    def test_submitted_approval_locks_decision_inputs(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-APPROVAL-LOCK-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+        ticket.write({
+            'issue_category': 'nsx',
+            'warranty_decision': 'free',
+        })
+        self._submit_for_approval(ticket)
+
+        with self.assertRaises(UserError):
+            ticket.write({'issue_category': 'user'})
+
+    def test_staff_cannot_complete_exchange_by_spoofing_context(self):
+        product = self._create_product()
+        partner = self.env['res.partner'].create({'name': 'Exchange State Permission Customer'})
+        old_lot = self._create_lot(
+            product,
+            'EXCHANGE-STATE-PERMISSION-OLD-001',
+            x_customer_id=partner.id,
+            x_custom_status='sold',
+            x_purchase_date=fields.Date.today() - timedelta(days=10),
+        )
+        ticket = self.env['warranty.ticket'].create({
+            'serial_id': old_lot.id,
+            'ticket_type': 'exchange',
+        })
+        stock_user = self.env['res.users'].create({
+            'name': 'Warranty State Stock User',
+            'login': 'warranty-state-stock-user',
+            'groups_id': [(6, 0, [
+                self.env.ref('base.group_user').id,
+                self.env.ref('stock.group_stock_user').id,
+            ])],
+        })
+
+        with self.assertRaises(UserError):
+            ticket.with_user(stock_user).with_context(exchange_approval=True).write({
+                'state': 'done',
+            })
+
+        self.assertEqual(ticket.state, 'new')
+
+    def test_repair_cannot_be_completed_without_confirmed_decision(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(
+            product,
+            'POLICY-COMPLETE-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+        ticket.action_start_repair()
+        ticket.repair_resolution = 'Đã sửa và kiểm tra đạt.'
+
+        with self.assertRaises(ValidationError):
+            ticket.action_complete_repair()
+
+        self.assertNotEqual(ticket.state, 'done')
 
     def test_intake_checklist_attachments_assignment_and_sla(self):
         product = self._create_product()
@@ -137,6 +306,7 @@ class TestWarrantyTicket(TransactionCase):
             'technician_id': self.env.user.id,
             'promised_return_date': fields.Date.today() - timedelta(days=1),
         })
+        self._confirm_free_decision(ticket)
 
         self.assertEqual(ticket.technician_id, self.env.user)
         self.assertTrue(ticket.technician_assigned_date)
@@ -165,15 +335,56 @@ class TestWarrantyTicket(TransactionCase):
         ticket.promised_return_date = adjusted_date
         self.assertEqual(ticket.promised_return_date, adjusted_date)
 
+    def test_new_ticket_form_shows_sla_date_and_unchecked_checklists(self):
+        receive_date = fields.Date.today()
+        ticket_model = self.env['warranty.ticket']
+        new_ticket = ticket_model.new()
+        ticket = ticket_model.new({
+            'receive_date': receive_date,
+            'sla_days': 3,
+        })
+
+        self.assertEqual(
+            new_ticket.promised_return_date,
+            fields.Date.today() + timedelta(days=3),
+        )
+        ticket._onchange_sla_deadline()
+
+        self.assertEqual(ticket.promised_return_date, receive_date + timedelta(days=3))
+        for field_name in (
+            'symptom_power',
+            'symptom_charging',
+            'symptom_display',
+            'symptom_keyboard',
+            'symptom_battery',
+            'symptom_overheating',
+            'symptom_network',
+            'symptom_physical_damage',
+            'symptom_other',
+            'screen_ok',
+            'keyboard_ok',
+            'battery_charger_ok',
+            'accessories_complete',
+            'appearance_ok',
+            'no_liquid_damage',
+            'security_cleared',
+        ):
+            self.assertFalse(ticket[field_name], field_name)
+
     def test_sla_cron_marks_overdue_and_ignores_completed(self):
         product = self._create_product()
         overdue_ticket = self._create_repair_ticket(product, 'SLA-CRON-OVERDUE-001')
-        completed_ticket = self._create_repair_ticket(product, 'SLA-CRON-DONE-001')
+        completed_ticket = self._create_repair_ticket(
+            product,
+            'SLA-CRON-DONE-001',
+            x_warranty_end_date=fields.Date.today() + timedelta(days=30),
+        )
+        self._confirm_free_decision(completed_ticket)
         overdue_ticket.promised_return_date = fields.Date.today() - timedelta(days=1)
-        completed_ticket.write({
-            'promised_return_date': fields.Date.today() - timedelta(days=1),
-            'state': 'done',
-        })
+        completed_ticket.promised_return_date = fields.Date.today() - timedelta(days=1)
+        completed_ticket.action_start_repair()
+        completed_ticket.repair_resolution = 'Đã hoàn tất sửa chữa.'
+        completed_ticket.action_complete_repair()
 
         self.env['warranty.ticket']._cron_update_sla_overdue()
 
@@ -205,6 +416,7 @@ class TestWarrantyTicket(TransactionCase):
         self.assertEqual(ticket.warranty_status, 'valid')
         self.assertIn(ticket, lot.warranty_ticket_ids)
         self.assertIn(ticket, ticket.serial_history_ids)
+        self._confirm_free_decision(ticket)
         phone_lookup = self.env['warranty.ticket'].new({'customer_phone': partner.phone})
         phone_lookup._onchange_customer_phone()
         self.assertEqual(phone_lookup.serial_id, lot)
@@ -232,6 +444,7 @@ class TestWarrantyTicket(TransactionCase):
         })
         sale_order_line = sale_order.order_line
         purchase_date = fields.Date.today() - timedelta(days=10)
+        warranty_start = purchase_date
         warranty_end = fields.Date.today() + timedelta(days=355)
         old_lot = self._create_lot(
             product,
@@ -241,6 +454,7 @@ class TestWarrantyTicket(TransactionCase):
             x_sale_order_id=sale_order.id,
             x_sale_order_line_id=sale_order_line.id,
             x_purchase_date=purchase_date,
+            x_warranty_start_date=warranty_start,
             x_warranty_end_date=warranty_end,
         )
         new_lot = self._create_lot(product, 'EXCHANGE-NEW-001', x_custom_status='available')
@@ -259,19 +473,27 @@ class TestWarrantyTicket(TransactionCase):
             'new_serial_id': new_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'nsx',
+            'fault_description': 'Lỗi nhà sản xuất cần kiểm tra.',
             'appearance_ok': True,
             'no_liquid_damage': True,
             'security_cleared': True,
         })
 
+        with self.assertRaises(UserError):
+            ticket.action_approve_exchange()
+        self._submit_for_approval(ticket)
         ticket.action_approve_exchange()
 
         self.assertEqual(ticket.state, 'done')
+        self.assertEqual(ticket.approval_status, 'approved')
+        self.assertEqual(ticket.approval_user_id, self.env.user)
+        self.assertTrue(ticket.approval_date)
         self.assertEqual(old_lot.x_custom_status, 'defective')
         self.assertEqual(new_lot.x_custom_status, 'sold')
         self.assertEqual(new_lot.x_customer_id, partner)
         self.assertEqual(new_lot.x_sale_order_line_id, sale_order_line)
         self.assertEqual(new_lot.x_purchase_date, purchase_date)
+        self.assertEqual(new_lot.x_warranty_start_date, warranty_start)
         self.assertEqual(new_lot.x_warranty_end_date, warranty_end)
         self.assertEqual(new_lot.x_replaced_from_lot_id, old_lot)
         self.assertEqual(old_lot.x_replacement_lot_ids, new_lot)
@@ -341,13 +563,14 @@ class TestWarrantyTicket(TransactionCase):
             'new_serial_id': new_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'nsx',
+            'fault_description': 'Lỗi nhà sản xuất cần kiểm tra.',
             'appearance_ok': True,
             'no_liquid_damage': True,
             'security_cleared': True,
         })
 
         with self.assertRaises(ValidationError):
-            ticket.action_approve_exchange()
+            ticket.action_submit_for_approval()
 
         self.assertEqual(ticket.state, 'new')
         self.assertEqual(old_lot.x_custom_status, 'sold')
@@ -372,6 +595,7 @@ class TestWarrantyTicket(TransactionCase):
             'serial_id': old_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'nsx',
+            'fault_description': 'Lỗi nhà sản xuất cần kiểm tra.',
             'appearance_ok': True,
             'no_liquid_damage': True,
             'security_cleared': True,
@@ -380,6 +604,8 @@ class TestWarrantyTicket(TransactionCase):
         ticket.action_wait_for_exchange_serial()
 
         self.assertEqual(ticket.state, 'waiting_serial')
+        with self.assertRaises(ValidationError):
+            self._submit_for_approval(ticket)
         new_lot = self._create_lot(
             product,
             'EXCHANGE-WAIT-NEW-001',
@@ -387,6 +613,7 @@ class TestWarrantyTicket(TransactionCase):
         )
         quant_model._update_available_quantity(product, internal_location, 1, lot_id=new_lot)
         ticket.write({'new_serial_id': new_lot.id})
+        self._submit_for_approval(ticket)
         ticket.action_approve_exchange()
 
         self.assertEqual(ticket.state, 'done')
@@ -408,6 +635,7 @@ class TestWarrantyTicket(TransactionCase):
             'serial_id': old_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'nsx',
+            'fault_description': 'Máy lỗi nhà sản xuất sau thời hạn đổi.',
             'exchange_referral_reason': 'Đã quá hạn đổi; tiếp nhận sửa chữa theo chính sách bảo hành.',
         })
 
@@ -472,11 +700,13 @@ class TestWarrantyTicket(TransactionCase):
             'new_serial_id': new_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'nsx',
+            'fault_description': 'Lỗi nhà sản xuất cần kiểm tra.',
             'appearance_ok': True,
             'no_liquid_damage': True,
             'security_cleared': True,
         })
 
+        self._submit_for_approval(ticket)
         stock_move_model = type(self.env['stock.move'])
         original_action_done = stock_move_model._action_done
 
@@ -494,6 +724,7 @@ class TestWarrantyTicket(TransactionCase):
                     '_action_done',
                     fail_after_recovering_old_serial,
                 ):
+                    self._submit_for_approval(ticket)
                     ticket.action_approve_exchange()
 
         self.assertEqual(ticket.state, 'new')
@@ -534,16 +765,80 @@ class TestWarrantyTicket(TransactionCase):
         self.assertEqual(template._get_exchange_period_days(), 365)
         with self.assertRaises(ValidationError):
             template.write({'exchange_period_days': 366})
+        with self.assertRaises(ValidationError):
+            self.env['product.category'].create({
+                'name': 'Unclassified Exchange Policy Category',
+                'exchange_period_days': 20,
+            })
+
+        unconfigured_accessory = self.env['product.template'].create({
+            'name': 'Warranty Test Accessory Without Policy',
+            'is_storable': True,
+            'tracking': 'serial',
+            'exchange_item_type': 'accessory',
+            'warranty_period_months': 12,
+        })
+        self.assertEqual(unconfigured_accessory._get_exchange_period_days(), 0)
 
         device_template = self.env['product.template'].create({
             'name': 'Warranty Test New Device',
             'is_storable': True,
             'tracking': 'serial',
+            'exchange_item_type': 'new_device',
             'warranty_period_months': 12,
         })
         self.assertEqual(device_template._get_exchange_period_days(), 30)
         with self.assertRaises(ValidationError):
             device_template.write({'exchange_period_days': 31})
+
+        used_device_template = self.env['product.template'].create({
+            'name': 'Warranty Test Used Device',
+            'is_storable': True,
+            'tracking': 'serial',
+            'exchange_item_type': 'used_device',
+            'warranty_period_months': 12,
+        })
+        self.assertEqual(used_device_template._get_exchange_period_days(), 30)
+
+        unclassified_template = self.env['product.template'].create({
+            'name': 'Unclassified Product',
+            'is_storable': True,
+            'tracking': 'serial',
+            'warranty_period_months': 12,
+        })
+        self.assertFalse(unclassified_template._get_exchange_item_type())
+        self.assertEqual(unclassified_template._get_exchange_period_days(), 0)
+
+    def test_category_reclassification_cannot_invalidate_child_policy(self):
+        category = self.env['product.category'].create({
+            'name': 'Accessory Policy Parent',
+            'exchange_item_type': 'accessory',
+        })
+        self.env['product.category'].create({
+            'name': 'Accessory Policy Child',
+            'parent_id': category.id,
+            'exchange_period_days': 365,
+        })
+
+        with self.assertRaises(ValidationError):
+            category.write({'exchange_item_type': 'new_device'})
+
+        product_category = self.env['product.category'].create({
+            'name': 'Product Policy Parent',
+            'exchange_item_type': 'accessory',
+        })
+        child_category = self.env['product.category'].create({
+            'name': 'Product Policy Child',
+            'parent_id': product_category.id,
+        })
+        self.env['product.template'].create({
+            'name': 'Inherited Accessory Policy Product',
+            'categ_id': child_category.id,
+            'exchange_period_days': 365,
+        })
+
+        with self.assertRaises(ValidationError):
+            product_category.write({'exchange_item_type': 'new_device'})
 
     def test_exchange_policy_rejects_user_damage(self):
         product = self._create_product()
@@ -559,12 +854,45 @@ class TestWarrantyTicket(TransactionCase):
             'serial_id': old_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'user',
+            'fault_description': 'Thiết bị hỏng do người dùng.',
         })
 
         with self.assertRaises(ValidationError):
             ticket.action_wait_for_exchange_serial()
 
         self.assertEqual(ticket.state, 'new')
+
+    def test_exchange_requires_fault_description_and_full_intake_checklist(self):
+        product = self._create_product()
+        partner = self.env['res.partner'].create({'name': 'Incomplete Intake Customer'})
+        old_lot = self._create_lot(
+            product,
+            'EXCHANGE-INCOMPLETE-INTAKE-001',
+            x_customer_id=partner.id,
+            x_custom_status='sold',
+            x_purchase_date=fields.Date.today() - timedelta(days=10),
+        )
+        ticket = self.env['warranty.ticket'].create({
+            'serial_id': old_lot.id,
+            'ticket_type': 'exchange',
+            'issue_category': 'nsx',
+        })
+
+        with self.assertRaises(ValidationError):
+            ticket.action_wait_for_exchange_serial()
+
+        ticket.symptom_power = True
+        with self.assertRaises(ValidationError):
+            ticket.action_wait_for_exchange_serial()
+
+        ticket.write({
+            'appearance_ok': True,
+            'no_liquid_damage': True,
+            'security_cleared': True,
+        })
+        ticket.action_wait_for_exchange_serial()
+        self.assertEqual(ticket.state, 'waiting_serial')
+
 
     def test_regular_stock_user_cannot_approve_exchange(self):
         product = self._create_product()
@@ -586,6 +914,7 @@ class TestWarrantyTicket(TransactionCase):
             'new_serial_id': new_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'nsx',
+            'fault_description': 'Lỗi nhà sản xuất cần kiểm tra.',
             'appearance_ok': True,
             'no_liquid_damage': True,
             'security_cleared': True,
@@ -630,10 +959,12 @@ class TestWarrantyTicket(TransactionCase):
             'new_serial_id': second_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'nsx',
+            'fault_description': 'Lỗi nhà sản xuất cần kiểm tra.',
             'appearance_ok': True,
             'no_liquid_damage': True,
             'security_cleared': True,
         })
+        self._submit_for_approval(first_ticket)
         first_ticket.action_approve_exchange()
         quant_model._update_available_quantity(product, internal_location, 1, lot_id=third_lot)
         second_ticket = self.env['warranty.ticket'].create({
@@ -641,11 +972,13 @@ class TestWarrantyTicket(TransactionCase):
             'new_serial_id': third_lot.id,
             'ticket_type': 'exchange',
             'issue_category': 'nsx',
+            'fault_description': 'Lỗi nhà sản xuất cần kiểm tra.',
             'appearance_ok': True,
             'no_liquid_damage': True,
             'security_cleared': True,
         })
 
+        self._submit_for_approval(second_ticket)
         second_ticket.action_approve_exchange()
 
         self.assertEqual(second_lot.x_replaced_from_lot_id, first_lot)
@@ -688,3 +1021,13 @@ class TestWarrantyTicket(TransactionCase):
         self.assertEqual(report.report_type, 'qweb-pdf')
         self.assertTrue(self.env.ref('custom_warranty.group_warranty_technician'))
         self.assertTrue(self.env.ref('custom_warranty.group_warranty_manager'))
+        ticket = self._create_repair_ticket(
+            self._create_product(),
+            'RECEIPT-RENDER-001',
+        )
+        ticket.symptom_power = True
+        html, _content_type = report._render_qweb_html(report.report_name, ticket.ids)
+        rendered_html = html.decode() if isinstance(html, bytes) else str(html)
+
+        self.assertIn('BIÊN NHẬN TIẾP NHẬN THIẾT BỊ HẬU MÃI', rendered_html)
+        self.assertIn('Không lên nguồn', rendered_html)

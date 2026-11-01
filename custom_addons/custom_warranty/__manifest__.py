@@ -1,6 +1,6 @@
 {
     'name': 'Quản lý Bảo hành, Sửa chữa & Đổi mới 1-1',
-    'version': '18.0.1.14.0',
+    'version': '18.0.1.24.0',
     'summary': 'Tiếp nhận sửa chữa, theo dõi bảo hành và xử lý đổi máy 1-1',
     'author': 'Nhóm 5',
     'license': 'LGPL-3',
@@ -10,9 +10,9 @@
         'data/warranty_cron.xml',
         'security/warranty_security.xml',
         'security/ir.model.access.csv',
+        'reports/warranty_receipt_report.xml',
         'views/warranty_views.xml',
         'views/warranty_report_views.xml',
-        'reports/warranty_receipt_report.xml',
         'views/warranty_menus.xml',
     ],
     'demo': [

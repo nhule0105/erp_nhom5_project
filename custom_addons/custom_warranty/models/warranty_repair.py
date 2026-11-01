@@ -9,6 +9,10 @@ class WarrantyTicketRepair(models.Model):
         for ticket in self:
             if ticket.serial_id.x_custom_status not in ('sold', 'under_repair'):
                 raise ValidationError(_('Serial tiếp nhận phải đang được khách hàng sở hữu.'))
+            if not ticket._has_fault_report():
+                raise ValidationError(
+                    _('Hãy chọn biểu hiện lỗi hoặc nhập mô tả lỗi trước khi bắt đầu sửa chữa.')
+                )
             ticket.state = 'fixing'
             if not ticket.repair_start_datetime:
                 ticket.repair_start_datetime = fields.Datetime.now()
