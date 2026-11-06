@@ -401,9 +401,22 @@ class ResPartner(models.Model):
         domain=[('state', 'in', ['sale', 'done'])],
     )
 
+    @api.model
+    def _next_customer_code(self):
+        sequence = self.env['ir.sequence']
+        while True:
+            code = sequence.next_by_code('custom.sales.customer.v2')
+            if not code:
+                raise ValidationError(
+                    'Không tìm thấy chuỗi tự sinh mã khách hàng.'
+                )
+            if not self.with_context(active_test=False).search_count([
+                ('ref', '=', code),
+            ]):
+                return code
+
     @api.model_create_multi
     def create(self, vals_list):
-        sequence = self.env['ir.sequence']
         customer_search = (
             self.env.context.get('res_partner_search_mode') == 'customer'
         )
@@ -417,13 +430,7 @@ class ResPartner(models.Model):
                 and not vals.get('parent_id')
                 and (rank or customer_search)
             ):
-                vals['ref'] = sequence.next_by_code(
-                    'custom.sales.customer.v2'
-                )
-                if not vals['ref']:
-                    raise ValidationError(
-                        'Không tìm thấy chuỗi tự sinh mã khách hàng.'
-                    )
+                vals['ref'] = self._next_customer_code()
         return super().create(vals_list)
 
     def write(self, vals):
@@ -433,14 +440,7 @@ class ResPartner(models.Model):
                 lambda partner: not partner.ref and not partner.parent_id
             )
             for partner in customers_without_code:
-                code = self.env['ir.sequence'].next_by_code(
-                    'custom.sales.customer.v2'
-                )
-                if not code:
-                    raise ValidationError(
-                        'Không tìm thấy chuỗi tự sinh mã khách hàng.'
-                    )
-                partner.write({'ref': code})
+                partner.write({'ref': self._next_customer_code()})
         return result
 
 
@@ -494,6 +494,38 @@ class SaleOrderLine(models.Model):
         help='Số lượng còn khả dụng trong kho của đơn. Với sản phẩm theo dõi Serial, '
         'chỉ tính các Serial còn hàng và chưa bị giữ chỗ.',
     )
+
+    def _get_quote_report_name(self):
+        self.ensure_one()
+        product = self.product_id.with_context(lang='vi_VN')
+        product_names = {
+            'MASTER-BAG': 'Ba lô laptop',
+            'MASTER-MAT': 'Lót chuột',
+            'MASTER-MOU': 'Chuột tặng kèm',
+        }
+        description = self.name or product.name or ''
+        product_code = product.default_code
+        if product_code:
+            prefix = f'[{product_code}] '
+            lines = description.split('\n', 1)
+            if self.is_combo_gift and lines[0].startswith('Quà tặng combo:'):
+                lines[0] = prefix + product_names.get(product_code, product.name)
+            if lines[0].startswith(prefix):
+                lines[0] = prefix + product_names.get(
+                    product_code,
+                    lines[0][len(prefix):],
+                )
+            description = '\n'.join(lines)
+
+        if self.is_combo_gift:
+            combo_name = self.x_combo_rule_id.name
+            if combo_name:
+                description = (
+                    f'{description.splitlines()[0]}\n'
+                    f'Quà tặng kèm: {combo_name}'
+                )
+
+        return description
 
     @api.depends(
         'product_id',
@@ -664,3 +696,36 @@ class SaleOrderLine(models.Model):
                 key=lambda lot_id: lots_by_id[lot_id].name,
             )
         )
+
+
+class AccountMoveLine(models.Model):
+    _inherit = 'account.move.line'
+
+    def _get_invoice_report_name(self):
+        self.ensure_one()
+        description = self.name or ''
+        product = self.product_id
+        product_names = {
+            'MASTER-BAG': 'Ba lô laptop',
+            'MASTER-MAT': 'Lót chuột',
+            'MASTER-MOU': 'Chuột tặng kèm',
+        }
+        product_name = product_names.get(product.default_code)
+        if product_name:
+            lines = description.split('\n', 1)
+            prefix = f'[{product.default_code}] '
+            if lines[0].startswith(prefix):
+                lines[0] = prefix + product_name
+            else:
+                lines[0] = product_name
+            description = '\n'.join(lines)
+
+        gift_line = self.sale_line_ids.filtered('is_combo_gift')[:1]
+        if gift_line:
+            combo_name = gift_line.x_combo_rule_id.name
+            if combo_name:
+                lines = description.split('\n', 1)
+                subtitle = f'Quà tặng kèm: {combo_name}'
+                description = '\n'.join([lines[0], subtitle])
+
+        return description

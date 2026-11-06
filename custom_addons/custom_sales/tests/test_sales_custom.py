@@ -46,6 +46,74 @@ class TestSalesCustom(TransactionCase):
             int(first_customer.ref[2:]) + 1,
         )
 
+    def test_customer_code_skips_codes_used_by_archived_customers(self):
+        sequence = self.env['ir.sequence'].search([
+            ('code', '=', 'custom.sales.customer.v2'),
+        ], limit=1)
+        sequence.next_by_code('custom.sales.customer.v2')
+        first_reserved_code = sequence.next_by_code(
+            'custom.sales.customer.v2'
+        )
+        second_reserved_code = sequence.next_by_code(
+            'custom.sales.customer.v2'
+        )
+        self.env['res.partner'].create([
+            {
+                'name': 'Archived customer code reservation',
+                'ref': code,
+                'active': False,
+            }
+            for code in (first_reserved_code, second_reserved_code)
+        ])
+        self.env.cr.execute(
+            'ALTER SEQUENCE "ir_sequence_%03d" RESTART WITH %s'
+            % (sequence.id, int(first_reserved_code[2:]))
+        )
+
+        generated_code = self.env['res.partner']._next_customer_code()
+
+        self.assertEqual(
+            int(generated_code[2:]),
+            int(second_reserved_code[2:]) + 1,
+        )
+
+    def test_invoice_report_repairs_damaged_accessory_names(self):
+        repaired_names = {
+            'MASTER-BAG': 'Ba lô laptop',
+            'MASTER-MAT': 'Lót chuột',
+            'MASTER-MOU': 'Chuột tặng kèm',
+        }
+        for default_code, product_name in repaired_names.items():
+            product = self._create_product()
+            product.default_code = default_code
+            invoice_line = self.env['account.move.line'].new({
+                'name': f'[{default_code}] Tên bị lỗi',
+                'product_id': product.id,
+            })
+
+            self.assertEqual(
+                invoice_line._get_invoice_report_name(),
+                f'[{default_code}] {product_name}',
+            )
+
+    def test_quotation_report_repairs_product_names_and_labels_combo_gifts(self):
+        product = self._create_product()
+        product.default_code = 'MASTER-BAG'
+        combo = self.env['custom.crm.combo'].create({
+            'name': 'Quotation Test Combo',
+        })
+        line = self.env['sale.order.line'].new({
+            'product_id': product.id,
+            'name': '[MASTER-BAG] Ba l?? laptop',
+            'is_combo_gift': True,
+            'x_combo_rule_id': combo.id,
+        })
+
+        self.assertEqual(
+            line._get_quote_report_name(),
+            '[MASTER-BAG] Ba lô laptop\nQuà tặng kèm: Quotation Test Combo',
+        )
+
     def test_salesperson_can_create_edit_and_delete_combo_rules(self):
         salesperson = self.env['res.users'].with_context(
             no_reset_password=True

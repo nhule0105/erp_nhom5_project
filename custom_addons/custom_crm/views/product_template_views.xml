@@ -32,7 +32,7 @@
                             </strong>
                             <div><i>Brand: </i><field name="brand"/></div>
                             <div><i>Category: </i><field name="categ_id"/></div>
-                            <div t-if="record.lifecycle_product_type.raw_value != 'mouse' and record.lifecycle_product_type.raw_value != 'backpack'">
+                            <div t-if="record.lifecycle_product_type.raw_value == 'laptop'">
                                 <div><i>CPU: </i><field name="cpu"/></div>
                                 <div><i>RAM: </i><field name="ram"/></div>
                                 <div><i>Storage: </i><field name="storage"/></div>

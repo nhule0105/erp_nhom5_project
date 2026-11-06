@@ -516,6 +516,15 @@ class WarrantyTicket(models.Model):
         readonly=True,
         copy=False,
     )
+    return_move_ids = fields.Many2many(
+        'stock.move',
+        'warranty_ticket_return_move_rel',
+        'ticket_id',
+        'move_id',
+        string='Giao dịch trả hàng',
+        readonly=True,
+        copy=False,
+    )
     state = fields.Selection(
         [
             ('new', 'Mới tiếp nhận'),
