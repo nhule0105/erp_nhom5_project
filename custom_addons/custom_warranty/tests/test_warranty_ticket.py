@@ -391,6 +391,28 @@ class TestWarrantyTicket(TransactionCase):
         self.assertTrue(overdue_ticket.is_overdue)
         self.assertFalse(completed_ticket.is_overdue)
 
+    def test_exchange_ticket_is_not_overdue_by_repair_return_date(self):
+        product = self._create_product()
+        partner = self.env['res.partner'].create({'name': 'Exchange SLA Customer'})
+        lot = self._create_lot(
+            product,
+            'EXCHANGE-SLA-001',
+            x_customer_id=partner.id,
+            x_custom_status='sold',
+            x_purchase_date=fields.Date.today() - timedelta(days=5),
+        )
+        ticket = self.env['warranty.ticket'].create({
+            'serial_id': lot.id,
+            'ticket_type': 'exchange',
+            'promised_return_date': fields.Date.today() - timedelta(days=1),
+        })
+
+        self.assertFalse(ticket.is_overdue)
+
+        ticket.ticket_type = 'repair'
+
+        self.assertTrue(ticket.is_overdue)
+
     def test_repair_workflow_updates_serial_status(self):
         product = self._create_product()
         partner = self.env['res.partner'].create({
@@ -490,6 +512,9 @@ class TestWarrantyTicket(TransactionCase):
         self.assertTrue(ticket.approval_date)
         self.assertEqual(old_lot.x_custom_status, 'defective')
         self.assertEqual(new_lot.x_custom_status, 'sold')
+        if 'lifecycle_status' in self.env['stock.lot']._fields:
+            self.assertEqual(old_lot.lifecycle_status, 'defective')
+            self.assertEqual(new_lot.lifecycle_status, 'issued')
         self.assertEqual(new_lot.x_customer_id, partner)
         self.assertEqual(new_lot.x_sale_order_line_id, sale_order_line)
         self.assertEqual(new_lot.x_purchase_date, purchase_date)
@@ -533,6 +558,16 @@ class TestWarrantyTicket(TransactionCase):
         ])
         self.assertEqual(sum(old_loss_quants.mapped('quantity')), 1)
         self.assertEqual(sum(new_customer_quants.mapped('quantity')), 1)
+        internal_locations = self.env['stock.location'].search([
+            ('usage', '=', 'internal'),
+        ])
+        internal_quants = quant_model.search([
+            ('product_id', '=', product.id),
+            ('lot_id', 'in', [old_lot.id, new_lot.id]),
+            ('location_id', 'in', internal_locations.ids),
+            ('quantity', '>', 0),
+        ])
+        self.assertFalse(internal_quants)
         self.assertEqual(ticket.exchange_move_ids, old_move | new_move)
         move_count = self.env['stock.move'].search_count([
             ('move_line_ids.lot_id', 'in', [old_lot.id, new_lot.id]),
@@ -1030,4 +1065,11 @@ class TestWarrantyTicket(TransactionCase):
         rendered_html = html.decode() if isinstance(html, bytes) else str(html)
 
         self.assertIn('BIÊN NHẬN TIẾP NHẬN THIẾT BỊ HẬU MÃI', rendered_html)
+        self.assertIn('font-family: "DejaVu Sans", sans-serif !important', rendered_html)
+        self.assertNotIn('Your logo', rendered_html)
+        self.assertNotIn('My Company (San Francisco)', rendered_html)
+        self.assertIn('class="topage"', rendered_html)
+        self.assertIn('signature-space', rendered_html)
+        self.assertIn('signature-hint', rendered_html)
+        self.assertIn('<em>(Ký và ghi rõ họ tên)</em>', rendered_html)
         self.assertIn('Không lên nguồn', rendered_html)

@@ -681,6 +681,7 @@ class WarrantyTicket(models.Model):
         'repair_completed_datetime',
         'promised_return_date',
         'state',
+        'ticket_type',
     )
     def _compute_processing_duration(self):
         now = fields.Datetime.now()
@@ -695,7 +696,8 @@ class WarrantyTicket(models.Model):
             else:
                 ticket.processing_duration_hours = 0
             ticket.is_overdue = bool(
-                ticket.promised_return_date
+                ticket.ticket_type == 'repair'
+                and ticket.promised_return_date
                 and ticket.state != 'done'
                 and ticket.promised_return_date < today
             )

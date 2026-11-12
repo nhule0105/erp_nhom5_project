@@ -163,8 +163,8 @@ class WarrantyTicketExchange(models.Model):
                 raise ValidationError(_('Serial thay thế không còn sẵn sàng trong kho.'))
 
             exchange_moves = ticket._create_exchange_moves(old_sn, new_sn)
-            old_sn.write({'x_custom_status': 'defective'})
-            new_sn.write({
+            old_serial_values = {'x_custom_status': 'defective'}
+            replacement_serial_values = {
                 'x_custom_status': 'sold',
                 'x_customer_id': old_sn.x_customer_id.id,
                 'x_purchase_date': old_sn.x_purchase_date,
@@ -175,7 +175,12 @@ class WarrantyTicketExchange(models.Model):
                 'x_delivery_picking_id': old_sn.x_delivery_picking_id.id,
                 'x_sale_date': old_sn.x_sale_date,
                 'x_replaced_from_lot_id': old_sn.id,
-            })
+            }
+            if 'lifecycle_status' in self.env['stock.lot']._fields:
+                old_serial_values['lifecycle_status'] = 'defective'
+                replacement_serial_values['lifecycle_status'] = 'issued'
+            old_sn.write(old_serial_values)
+            new_sn.write(replacement_serial_values)
             ticket.with_context(exchange_approval=True).write({
                 'exchange_move_ids': [(6, 0, exchange_moves.ids)],
                 'state': 'done',
