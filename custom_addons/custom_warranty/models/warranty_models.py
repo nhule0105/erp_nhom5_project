@@ -679,16 +679,39 @@ class WarrantyTicket(models.Model):
                     if not self.env.context.get('exchange_approval'):
                         raise UserError(_('Phiếu đổi mới chỉ được hoàn tất bằng thao tác duyệt đổi.'))
                 elif target_state == 'done':
+                    if (
+                        ticket.ticket_type == 'repair'
+                        and not self.env.context.get('repair_action') == 'complete'
+                    ):
+                        raise UserError(
+                            _('Không thể kéo thẳng sang Đã xong. Hãy dùng nút Hoàn tất sửa chữa '
+                              'trong phiếu để tạo giao dịch trả máy.')
+                        )
                     if ticket.state not in ('fixing', 'waiting_parts'):
                         raise UserError(_('Phiếu sửa chữa phải đang xử lý mới có thể hoàn tất.'))
                     if not vals.get('repair_resolution', ticket.repair_resolution):
                         raise ValidationError(_('Hãy ghi nhận kết quả sửa chữa trước khi hoàn tất phiếu.'))
                 elif target_state == 'fixing':
+                    if (
+                        ticket.ticket_type == 'repair'
+                        and self.env.context.get('repair_action') not in ('start', 'resume')
+                    ):
+                        raise UserError(
+                            _('Không thể kéo thẳng sang Đang sửa. Hãy dùng nút Bắt đầu sửa '
+                              'hoặc Tiếp tục sửa.')
+                        )
                     if ticket.ticket_type != 'repair' or ticket.state not in ('new', 'waiting_parts'):
                         raise UserError(_('Trạng thái sửa chữa không hợp lệ.'))
                     if ticket.serial_id.x_custom_status not in ('sold', 'under_repair'):
                         raise ValidationError(_('Serial tiếp nhận phải đang được khách hàng sở hữu.'))
                 elif target_state == 'waiting_parts':
+                    if (
+                        ticket.ticket_type == 'repair'
+                        and self.env.context.get('repair_action') != 'waiting_parts'
+                    ):
+                        raise UserError(
+                            _('Không thể kéo thẳng sang Chờ linh kiện. Hãy dùng nút Chờ linh kiện.')
+                        )
                     if ticket.ticket_type != 'repair' or ticket.state != 'fixing':
                         raise UserError(_('Chỉ phiếu đang sửa mới được chuyển sang chờ linh kiện.'))
                 elif target_state == 'waiting_serial':

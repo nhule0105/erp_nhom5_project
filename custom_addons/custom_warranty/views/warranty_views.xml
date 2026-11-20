@@ -194,6 +194,8 @@
                 <field name="is_overdue"/>
                 <field name="receive_date"/>
                 <field name="state"/>
+                <field name="repair_resolution"/>
+                <field name="warranty_decision_user_id"/>
                 <templates>
                     <t t-name="card">
                         <div class="oe_kanban_global_click">
@@ -206,6 +208,23 @@
                             <div><field name="product_id"/></div>
                             <div class="text-muted">
                                 <field name="issue_category"/> · <field name="receive_date"/>
+                            </div>
+                            <div t-if="record.ticket_type.raw_value == 'repair'" class="mt-2">
+                                <button name="action_waiting_parts" type="object"
+                                        class="btn btn-secondary btn-sm me-1"
+                                        t-if="record.state.raw_value == 'fixing'">
+                                    Chờ linh kiện
+                                </button>
+                                <button name="action_resume_repair" type="object"
+                                        class="btn btn-secondary btn-sm me-1"
+                                        t-if="record.state.raw_value == 'waiting_parts'">
+                                    Tiếp tục sửa
+                                </button>
+                                <button name="action_complete_repair" type="object"
+                                        class="btn btn-primary btn-sm"
+                                        t-if="record.state.raw_value == 'fixing' or record.state.raw_value == 'waiting_parts'">
+                                    Hoàn tất sửa chữa
+                                </button>
                             </div>
                         </div>
                     </t>
