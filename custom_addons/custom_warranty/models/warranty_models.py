@@ -1038,8 +1038,11 @@ class WarrantyTicket(models.Model):
                             _('Không thể kéo thẳng sang Đã xong. Hãy dùng nút Hoàn tất sửa chữa '
                               'trong phiếu để tạo giao dịch trả máy.')
                         )
-                    if ticket.state not in ('fixing', 'waiting_parts'):
-                        raise UserError(_('Phiếu sửa chữa phải đang xử lý mới có thể hoàn tất.'))
+                    if ticket.state != 'fixing':
+                        raise UserError(
+                            _('Phiếu phải đang sửa mới có thể hoàn tất. '
+                              'Hãy tiếp tục sửa trước khi hoàn tất.')
+                        )
                     if not vals.get('repair_resolution', ticket.repair_resolution):
                         raise ValidationError(_('Hãy ghi nhận kết quả sửa chữa trước khi hoàn tất phiếu.'))
                     if (
