@@ -41,10 +41,13 @@
                             invisible="ticket_type != 'repair' or state != 'waiting_parts'"/>
                     <button name="action_complete_repair" type="object" string="Hoàn tất sửa chữa"
                             invisible="ticket_type != 'repair' or state != 'fixing'"/>
+                    <button name="action_submit_for_approval" type="object"
+                            string="Gửi chủ cửa hàng duyệt" class="oe_highlight"
+                            invisible="ticket_type != 'repair' or state == 'done' or approval_status != 'none' or warranty_decision == 'pending'"/>
                     <button name="action_confirm_warranty_decision" type="object"
                             string="Xác nhận quyết định bảo hành" class="oe_highlight"
                             groups="stock.group_stock_manager"
-                            invisible="ticket_type != 'repair' or warranty_decision == 'pending' or warranty_decision_user_id"/>
+                            invisible="ticket_type != 'repair' or approval_status != 'pending' or warranty_decision == 'pending' or warranty_decision_user_id"/>
                     <button name="%(action_warranty_receipt_report)d" type="action"
                             string="In biên nhận" class="oe_highlight"/>
                     <button name="action_wait_for_exchange_serial" type="object" string="Chờ serial thay thế"
@@ -87,6 +90,11 @@
                                    readonly="warranty_decision_user_id"/>
                             <field name="warranty_decision_reason"
                                    placeholder="Ghi rõ căn cứ xác nhận miễn phí hoặc tính phí..."/>
+                            <field name="approval_status" readonly="1"/>
+                            <field name="approval_user_id" readonly="1"
+                                   invisible="approval_status != 'approved'"/>
+                            <field name="approval_date" readonly="1"
+                                   invisible="approval_status != 'approved'"/>
                             <field name="warranty_decision_user_id" readonly="1"/>
                             <field name="warranty_decision_date" readonly="1"/>
                             <field name="is_overdue" string="Trạng thái SLA" widget="boolean"/>
@@ -195,6 +203,7 @@
                 <field name="is_overdue"/>
                 <field name="receive_date"/>
                 <field name="state"/>
+                <field name="approval_status"/>
                 <field name="repair_resolution"/>
                 <field name="warranty_decision_user_id"/>
                 <field name="warranty_decision"/>
@@ -212,6 +221,11 @@
                                 <field name="issue_category"/> · <field name="receive_date"/>
                             </div>
                             <div t-if="record.ticket_type.raw_value == 'repair'" class="mt-2">
+                                <button name="action_submit_for_approval" type="object"
+                                        class="btn btn-secondary btn-sm me-1"
+                                        t-if="record.approval_status.raw_value == 'none' and record.warranty_decision.raw_value in ['free', 'paid'] and record.state.raw_value != 'done'">
+                                    Gửi duyệt
+                                </button>
                                 <button name="action_waiting_parts" type="object"
                                         class="btn btn-secondary btn-sm me-1"
                                         t-if="record.state.raw_value == 'fixing'">
