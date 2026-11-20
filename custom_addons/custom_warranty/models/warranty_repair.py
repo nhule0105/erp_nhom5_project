@@ -181,8 +181,11 @@ class WarrantyTicketRepair(models.Model):
 
     def action_complete_repair(self):
         for ticket in self:
-            if ticket.state not in ('fixing', 'waiting_parts'):
-                raise UserError(_('Phiếu sửa chữa phải đang xử lý mới có thể hoàn tất.'))
+            if ticket.ticket_type != 'repair' or ticket.state != 'fixing':
+                raise UserError(
+                    _('Phiếu phải đang sửa mới có thể hoàn tất. '
+                      'Hãy chọn Tiếp tục sửa sau khi linh kiện đã về.')
+                )
             if not ticket.repair_resolution:
                 raise ValidationError(_('Hãy ghi nhận kết quả sửa chữa trước khi hoàn tất phiếu.'))
             if (

@@ -213,6 +213,9 @@ class TestWarrantyTicket(TransactionCase):
         self.assertEqual(lot.x_custom_status, 'under_repair')
         ticket.action_waiting_parts()
         self.assertEqual(ticket.state, 'waiting_parts')
+        ticket.repair_resolution = 'Đã thay linh kiện.'
+        with self.assertRaises(UserError):
+            ticket.action_complete_repair()
         ticket.action_resume_repair()
         ticket.repair_resolution = 'Thay linh kiện và kiểm tra đạt.'
         ticket.action_complete_repair()
