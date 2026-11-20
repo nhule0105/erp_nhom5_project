@@ -516,6 +516,15 @@ class WarrantyTicket(models.Model):
         readonly=True,
         copy=False,
     )
+    repair_move_ids = fields.Many2many(
+        'stock.move',
+        'warranty_ticket_repair_stock_move_rel',
+        'ticket_id',
+        'move_id',
+        string='Giao dịch kho sửa chữa',
+        readonly=True,
+        copy=False,
+    )
     return_move_ids = fields.Many2many(
         'stock.move',
         'warranty_ticket_return_move_rel',
@@ -791,6 +800,11 @@ class WarrantyTicket(models.Model):
                         _('Hãy chọn serial thay thế còn sẵn sàng trong kho trước khi gửi duyệt.')
                     )
                 if ticket.new_serial_id.x_custom_status != 'available':
+                    raise ValidationError(_('Serial thay thế không còn sẵn sàng trong kho.'))
+                if (
+                    'lifecycle_status' in self.env['stock.lot']._fields
+                    and ticket.new_serial_id.lifecycle_status != 'available'
+                ):
                     raise ValidationError(_('Serial thay thế không còn sẵn sàng trong kho.'))
                 if ticket.new_serial_id.product_id != ticket.serial_id.product_id:
                     raise ValidationError(_('Serial thay thế phải thuộc cùng sản phẩm với serial lỗi.'))

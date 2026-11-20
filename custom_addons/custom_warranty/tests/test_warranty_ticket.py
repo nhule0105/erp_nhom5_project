@@ -39,6 +39,12 @@ class TestWarrantyTicket(TransactionCase):
             x_custom_status='sold',
             **lot_values,
         )
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            self.env.ref('stock.stock_location_customers'),
+            1,
+            lot_id=lot,
+        )
         return self.env['warranty.ticket'].create({
             'serial_id': lot.id,
             'ticket_type': 'repair',
@@ -283,6 +289,34 @@ class TestWarrantyTicket(TransactionCase):
             ticket.action_complete_repair()
 
         self.assertNotEqual(ticket.state, 'done')
+        self.assertEqual(len(ticket.repair_move_ids), 1)
+
+    def test_repair_intake_moves_serial_to_non_saleable_internal_location(self):
+        product = self._create_product()
+        ticket = self._create_repair_ticket(product, 'REPAIR-INTAKE-STOCK-001')
+        customer_location = self.env.ref('stock.stock_location_customers')
+        quant_model = self.env['stock.quant']
+
+        ticket.action_receive_repair_device()
+
+        repair_location = ticket._get_repair_stock_location()
+        customer_quantity = sum(quant_model.search([
+            ('lot_id', '=', ticket.serial_id.id),
+            ('location_id', '=', customer_location.id),
+        ]).mapped('quantity'))
+        repair_quantity = sum(quant_model.search([
+            ('lot_id', '=', ticket.serial_id.id),
+            ('location_id', '=', repair_location.id),
+        ]).mapped('quantity'))
+
+        self.assertEqual(ticket.state, 'new')
+        self.assertEqual(ticket.serial_id.x_custom_status, 'under_repair')
+        self.assertEqual(customer_quantity, 0)
+        self.assertEqual(repair_quantity, 1)
+        self.assertEqual(len(ticket.repair_move_ids), 1)
+        with self.assertRaises(UserError):
+            ticket.action_receive_repair_device()
+        self.assertEqual(len(ticket.repair_move_ids), 1)
 
     def test_intake_checklist_attachments_assignment_and_sla(self):
         product = self._create_product()
@@ -427,6 +461,13 @@ class TestWarrantyTicket(TransactionCase):
             x_purchase_date=fields.Date.today() - timedelta(days=10),
             x_warranty_end_date=fields.Date.today() + timedelta(days=355),
         )
+        customer_location = self.env.ref('stock.stock_location_customers')
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            customer_location,
+            1,
+            lot_id=lot,
+        )
         ticket = self.env['warranty.ticket'].create({
             'serial_id': lot.id,
             'ticket_type': 'repair',
@@ -445,6 +486,15 @@ class TestWarrantyTicket(TransactionCase):
         ticket.action_start_repair()
         self.assertEqual(ticket.state, 'fixing')
         self.assertEqual(lot.x_custom_status, 'under_repair')
+        repair_location = ticket._get_repair_stock_location()
+        self.assertEqual(len(ticket.repair_move_ids), 1)
+        self.assertEqual(
+            sum(self.env['stock.quant'].search([
+                ('lot_id', '=', lot.id),
+                ('location_id', '=', repair_location.id),
+            ]).mapped('quantity')),
+            1,
+        )
         ticket.action_waiting_parts()
         self.assertEqual(ticket.state, 'waiting_parts')
         ticket.action_resume_repair()
@@ -452,6 +502,21 @@ class TestWarrantyTicket(TransactionCase):
         ticket.action_complete_repair()
         self.assertEqual(ticket.state, 'done')
         self.assertEqual(lot.x_custom_status, 'sold')
+        self.assertEqual(len(ticket.repair_move_ids), 2)
+        self.assertEqual(
+            sum(self.env['stock.quant'].search([
+                ('lot_id', '=', lot.id),
+                ('location_id', '=', repair_location.id),
+            ]).mapped('quantity')),
+            0,
+        )
+        self.assertEqual(
+            sum(self.env['stock.quant'].search([
+                ('lot_id', '=', lot.id),
+                ('location_id', '=', customer_location.id),
+            ]).mapped('quantity')),
+            1,
+        )
         self.assertTrue(ticket.completed_date)
 
     def test_exchange_moves_lots_and_preserves_warranty(self):
@@ -482,11 +547,6 @@ class TestWarrantyTicket(TransactionCase):
         new_lot = self._create_lot(product, 'EXCHANGE-NEW-001', x_custom_status='available')
         customer_location = self.env.ref('stock.stock_location_customers')
         internal_location = self.env.ref('stock.stock_location_stock')
-        loss_location = self.env['stock.location'].search([
-            ('usage', '=', 'inventory'),
-            ('scrap_location', '=', False),
-            ('company_id', '=', self.env.company.id),
-        ], limit=1)
         quant_model = self.env['stock.quant']
         quant_model._update_available_quantity(product, customer_location, 1, lot_id=old_lot)
         quant_model._update_available_quantity(product, internal_location, 1, lot_id=new_lot)
@@ -500,6 +560,7 @@ class TestWarrantyTicket(TransactionCase):
             'no_liquid_damage': True,
             'security_cleared': True,
         })
+        defective_location = ticket._get_defective_stock_location()
 
         with self.assertRaises(UserError):
             ticket.action_approve_exchange()
@@ -542,32 +603,43 @@ class TestWarrantyTicket(TransactionCase):
         ], limit=1)
         self.assertTrue(old_move)
         self.assertEqual(old_move.location_id, customer_location)
-        self.assertEqual(old_move.location_dest_id, loss_location)
+        self.assertEqual(old_move.location_dest_id, defective_location)
         self.assertTrue(new_move)
         self.assertEqual(new_move.location_id, internal_location)
         self.assertEqual(new_move.location_dest_id, customer_location)
-        old_loss_quants = quant_model.search([
+        old_defective_quants = quant_model.search([
             ('product_id', '=', product.id),
             ('lot_id', '=', old_lot.id),
-            ('location_id', '=', loss_location.id),
+            ('location_id', '=', defective_location.id),
         ])
         new_customer_quants = quant_model.search([
             ('product_id', '=', product.id),
             ('lot_id', '=', new_lot.id),
             ('location_id', '=', customer_location.id),
         ])
-        self.assertEqual(sum(old_loss_quants.mapped('quantity')), 1)
+        self.assertEqual(sum(old_defective_quants.mapped('quantity')), 1)
         self.assertEqual(sum(new_customer_quants.mapped('quantity')), 1)
         internal_locations = self.env['stock.location'].search([
             ('usage', '=', 'internal'),
         ])
-        internal_quants = quant_model.search([
+        old_internal_quants = quant_model.search([
             ('product_id', '=', product.id),
-            ('lot_id', 'in', [old_lot.id, new_lot.id]),
+            ('lot_id', '=', old_lot.id),
             ('location_id', 'in', internal_locations.ids),
             ('quantity', '>', 0),
         ])
-        self.assertFalse(internal_quants)
+        self.assertEqual(sum(old_internal_quants.mapped('quantity')), 1)
+        self.assertTrue(all(
+            quant.location_id.warranty_defective_location
+            for quant in old_internal_quants
+        ))
+        new_internal_quants = quant_model.search([
+            ('product_id', '=', product.id),
+            ('lot_id', '=', new_lot.id),
+            ('location_id', 'in', internal_locations.ids),
+            ('quantity', '>', 0),
+        ])
+        self.assertFalse(new_internal_quants)
         self.assertEqual(ticket.exchange_move_ids, old_move | new_move)
         move_count = self.env['stock.move'].search_count([
             ('move_line_ids.lot_id', 'in', [old_lot.id, new_lot.id]),
@@ -665,6 +737,12 @@ class TestWarrantyTicket(TransactionCase):
             x_customer_id=partner.id,
             x_custom_status='sold',
             x_purchase_date=fields.Date.today() - timedelta(days=40),
+        )
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            self.env.ref('stock.stock_location_customers'),
+            1,
+            lot_id=old_lot,
         )
         ticket = self.env['warranty.ticket'].create({
             'serial_id': old_lot.id,

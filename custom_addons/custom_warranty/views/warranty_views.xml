@@ -44,6 +44,9 @@
                     <button name="action_submit_for_approval" type="object" string="Gửi chủ cửa hàng duyệt"
                             class="oe_highlight"
                             invisible="state == 'done' or approval_status != 'none' or (ticket_type == 'repair' and warranty_decision == 'pending') or (ticket_type == 'exchange' and not new_serial_id)"/>
+                    <button name="action_receive_repair_device" type="object"
+                            string="Nhận vào kho sửa chữa"
+                            invisible="ticket_type != 'repair' or state != 'new' or repair_move_ids"/>
                     <button name="action_start_repair" type="object" string="Bắt đầu sửa" class="oe_highlight"
                             invisible="ticket_type != 'repair' or state != 'new'"/>
                     <button name="action_waiting_parts" type="object" string="Chờ linh kiện"
@@ -259,6 +262,9 @@
                         </page>
                         <page string="Giao dịch kho" invisible="not exchange_move_ids">
                             <field name="exchange_move_ids" readonly="1" options="{'no_create': True}"/>
+                        </page>
+                        <page string="Giao dịch kho sửa chữa" invisible="not repair_move_ids">
+                            <field name="repair_move_ids" readonly="1" options="{'no_create': True}"/>
                         </page>
                         <page string="Lịch sử serial" invisible="not serial_history_ids">
                             <field name="serial_history_ids" readonly="1" options="{'no_create': True}">
