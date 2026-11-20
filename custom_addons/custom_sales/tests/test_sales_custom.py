@@ -46,6 +46,74 @@ class TestSalesCustom(TransactionCase):
             int(first_customer.ref[2:]) + 1,
         )
 
+    def test_customer_code_skips_codes_used_by_archived_customers(self):
+        sequence = self.env['ir.sequence'].search([
+            ('code', '=', 'custom.sales.customer.v2'),
+        ], limit=1)
+        sequence.next_by_code('custom.sales.customer.v2')
+        first_reserved_code = sequence.next_by_code(
+            'custom.sales.customer.v2'
+        )
+        second_reserved_code = sequence.next_by_code(
+            'custom.sales.customer.v2'
+        )
+        self.env['res.partner'].create([
+            {
+                'name': 'Archived customer code reservation',
+                'ref': code,
+                'active': False,
+            }
+            for code in (first_reserved_code, second_reserved_code)
+        ])
+        self.env.cr.execute(
+            'ALTER SEQUENCE "ir_sequence_%03d" RESTART WITH %s'
+            % (sequence.id, int(first_reserved_code[2:]))
+        )
+
+        generated_code = self.env['res.partner']._next_customer_code()
+
+        self.assertEqual(
+            int(generated_code[2:]),
+            int(second_reserved_code[2:]) + 1,
+        )
+
+    def test_invoice_report_repairs_damaged_accessory_names(self):
+        repaired_names = {
+            'MASTER-BAG': 'Ba lô laptop',
+            'MASTER-MAT': 'Lót chuột',
+            'MASTER-MOU': 'Chuột tặng kèm',
+        }
+        for default_code, product_name in repaired_names.items():
+            product = self._create_product()
+            product.default_code = default_code
+            invoice_line = self.env['account.move.line'].new({
+                'name': f'[{default_code}] Tên bị lỗi',
+                'product_id': product.id,
+            })
+
+            self.assertEqual(
+                invoice_line._get_invoice_report_name(),
+                f'[{default_code}] {product_name}',
+            )
+
+    def test_quotation_report_repairs_product_names_and_labels_combo_gifts(self):
+        product = self._create_product()
+        product.default_code = 'MASTER-BAG'
+        combo = self.env['custom.crm.combo'].create({
+            'name': 'Quotation Test Combo',
+        })
+        line = self.env['sale.order.line'].new({
+            'product_id': product.id,
+            'name': '[MASTER-BAG] Ba l?? laptop',
+            'is_combo_gift': True,
+            'x_combo_rule_id': combo.id,
+        })
+
+        self.assertEqual(
+            line._get_quote_report_name(),
+            '[MASTER-BAG] Ba lô laptop\nQuà tặng kèm: Quotation Test Combo',
+        )
+
     def test_salesperson_can_create_edit_and_delete_combo_rules(self):
         salesperson = self.env['res.users'].with_context(
             no_reset_password=True
@@ -121,6 +189,206 @@ class TestSalesCustom(TransactionCase):
         self.assertEqual(line.x_available_stock_qty, 0)
         with self.assertRaises(ValidationError):
             order.action_confirm()
+
+    def test_device_in_warranty_repair_location_cannot_be_sold(self):
+        product = self._create_product(tracking='serial')
+        customer = self.env['res.partner'].create({
+            'name': 'Customer With Device Under Repair',
+            'customer_rank': 1,
+        })
+        lot = self.env['stock.lot'].create({
+            'name': 'SALES-CUSTOM-UNDER-REPAIR-001',
+            'product_id': product.id,
+            'company_id': self.env.company.id,
+            'x_customer_id': customer.id,
+            'x_custom_status': 'sold',
+            'lifecycle_status': 'issued',
+        })
+        customer_location = self.env.ref('stock.stock_location_customers')
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            customer_location,
+            1,
+            lot_id=lot,
+        )
+        repair_ticket = self.env['warranty.ticket'].create({
+            'serial_id': lot.id,
+            'ticket_type': 'repair',
+            'fault_description': 'Không lên nguồn.',
+        })
+        repair_ticket.action_receive_repair_device()
+
+        order = self._create_order(product)
+        self.assertNotIn(
+            lot,
+            order.order_line._get_available_product_serials(product),
+        )
+
+        with self.assertRaises(ValidationError):
+            order.action_confirm()
+        self.assertEqual(lot.x_custom_status, 'under_repair')
+        self.assertEqual(lot.lifecycle_status, 'issued')
+
+    def test_defective_exchange_return_in_quarantine_cannot_be_sold(self):
+        product = self._create_product(tracking='serial')
+        customer = self.env['res.partner'].create({
+            'name': 'Customer With Defective Exchange Device',
+            'customer_rank': 1,
+        })
+        warehouse = self.env['stock.warehouse'].search(
+            [('company_id', '=', self.env.company.id)],
+            limit=1,
+        )
+        defective_location = self.env['stock.location'].create({
+            'name': 'Warranty Defective Quarantine',
+            'location_id': warehouse.lot_stock_id.id,
+            'company_id': self.env.company.id,
+            'usage': 'internal',
+            'warranty_defective_location': True,
+        })
+        lot = self.env['stock.lot'].create({
+            'name': 'SALES-CUSTOM-DEFECTIVE-001',
+            'product_id': product.id,
+            'company_id': self.env.company.id,
+            'x_customer_id': customer.id,
+            'x_custom_status': 'defective',
+            'lifecycle_status': 'defective',
+        })
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            defective_location,
+            1,
+            lot_id=lot,
+        )
+        order = self._create_order(product)
+        self.assertNotIn(
+            lot,
+            order.order_line._get_available_product_serials(product),
+        )
+
+        with self.assertRaises(ValidationError):
+            order.action_confirm()
+
+        self.assertEqual(lot.x_custom_status, 'defective')
+        self.assertEqual(lot.lifecycle_status, 'defective')
+        self.assertEqual(
+            sum(self.env['stock.quant'].search([
+                ('lot_id', '=', lot.id),
+                ('location_id', '=', defective_location.id),
+            ]).mapped('quantity')),
+            1,
+        )
+
+    def test_serial_picker_disables_sold_and_repair_serials(self):
+        product = self._create_product(tracking='serial')
+        warehouse = self.env['stock.warehouse'].search(
+            [('company_id', '=', self.env.company.id)],
+            limit=1,
+        )
+        serials = {
+            'available': self.env['stock.lot'].create({
+                'name': 'SERIAL-PICKER-AVAILABLE',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'available',
+                'lifecycle_status': 'available',
+            }),
+            'sold': self.env['stock.lot'].create({
+                'name': 'SERIAL-PICKER-SOLD',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'sold',
+                'lifecycle_status': 'issued',
+            }),
+            'under_repair': self.env['stock.lot'].create({
+                'name': 'SERIAL-PICKER-REPAIR',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'under_repair',
+                'lifecycle_status': 'issued',
+            }),
+        }
+        for lot in serials.values():
+            self.env['stock.quant']._update_available_quantity(
+                product,
+                warehouse.lot_stock_id,
+                1,
+                lot_id=lot,
+            )
+
+        picker_data = {
+            item['id']: item for item in product.get_serial_picker_data()
+        }
+        self.assertEqual(product.x_serial_count, 3)
+        self.assertEqual(product.product_tmpl_id.x_serial_count, 3)
+        self.assertTrue(picker_data[serials['available'].id]['selectable'])
+        self.assertFalse(picker_data[serials['sold'].id]['selectable'])
+        self.assertFalse(picker_data[serials['under_repair'].id]['selectable'])
+
+        order = self._create_order(product)
+        for key in ('sold', 'under_repair'):
+            with self.assertRaises(ValidationError):
+                order.order_line.write({
+                    'x_selected_serial_lot_ids': [
+                        (6, 0, [serials[key].id]),
+                    ],
+                })
+
+    def test_confirmation_randomly_assigns_only_available_serials(self):
+        product = self._create_product(tracking='serial')
+        warehouse = self.env['stock.warehouse'].search(
+            [('company_id', '=', self.env.company.id)],
+            limit=1,
+        )
+        serials = {
+            'available': self.env['stock.lot'].create({
+                'name': 'SERIAL-AUTO-AVAILABLE',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'available',
+                'lifecycle_status': 'available',
+            }),
+            'sold': self.env['stock.lot'].create({
+                'name': 'SERIAL-AUTO-SOLD',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'sold',
+                'lifecycle_status': 'issued',
+            }),
+            'under_repair': self.env['stock.lot'].create({
+                'name': 'SERIAL-AUTO-REPAIR',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'under_repair',
+                'lifecycle_status': 'issued',
+            }),
+            'issued': self.env['stock.lot'].create({
+                'name': 'SERIAL-AUTO-ISSUED',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'available',
+                'lifecycle_status': 'issued',
+            }),
+        }
+        for lot in serials.values():
+            self.env['stock.quant']._update_available_quantity(
+                product,
+                warehouse.lot_stock_id,
+                1,
+                lot_id=lot,
+            )
+
+        order = self._create_order(product)
+        self.assertFalse(order.order_line.x_selected_serial_lot_ids)
+        order.action_confirm()
+
+        picking = order.picking_ids.filtered(
+            lambda record: record.picking_type_code == 'outgoing'
+        )
+        assigned_serials = picking.move_ids.move_line_ids.filtered(
+            lambda line: line.quantity > 0
+        ).mapped('lot_id')
+        self.assertEqual(assigned_serials, serials['available'])
 
     def test_confirmation_applies_the_matching_combo_gift_once(self):
         sold_product = self._create_product()
@@ -434,3 +702,62 @@ class TestSalesCustom(TransactionCase):
 
         with self.assertRaises(ValidationError):
             picking._validate_sale_delivery_serials()
+
+    def test_exchange_submission_rejects_defective_lifecycle_replacement(self):
+        product = self._create_product(tracking='serial')
+        product.product_tmpl_id.write({
+            'exchange_item_type': 'new_device',
+            'exchange_period_days': 30,
+        })
+        customer = self.env['res.partner'].create({
+            'name': 'Customer With Defective Replacement',
+            'customer_rank': 1,
+        })
+        warehouse = self.env['stock.warehouse'].search(
+            [('company_id', '=', self.env.company.id)],
+            limit=1,
+        )
+        old_lot = self.env['stock.lot'].create({
+            'name': 'SALES-CUSTOM-EXCHANGE-STATUS-OLD',
+            'product_id': product.id,
+            'company_id': self.env.company.id,
+            'x_customer_id': customer.id,
+            'x_custom_status': 'sold',
+            'x_purchase_date': fields.Date.today(),
+        })
+        new_lot = self.env['stock.lot'].create({
+            'name': 'SALES-CUSTOM-EXCHANGE-STATUS-NEW',
+            'product_id': product.id,
+            'company_id': self.env.company.id,
+            'x_custom_status': 'available',
+            'lifecycle_status': 'defective',
+        })
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            self.env.ref('stock.stock_location_customers'),
+            1,
+            lot_id=old_lot,
+        )
+        self.env['stock.quant']._update_available_quantity(
+            product,
+            warehouse.lot_stock_id,
+            1,
+            lot_id=new_lot,
+        )
+        ticket = self.env['warranty.ticket'].create({
+            'serial_id': old_lot.id,
+            'new_serial_id': new_lot.id,
+            'ticket_type': 'exchange',
+            'issue_category': 'nsx',
+            'fault_description': 'Lỗi nhà sản xuất cần kiểm tra.',
+            'appearance_ok': True,
+            'no_liquid_damage': True,
+            'security_cleared': True,
+        })
+
+        with self.assertRaises(ValidationError):
+            ticket.action_submit_for_approval()
+
+        self.assertEqual(ticket.approval_status, 'none')
+        self.assertFalse(ticket.exchange_move_ids)
+        self.assertEqual(new_lot.lifecycle_status, 'defective')

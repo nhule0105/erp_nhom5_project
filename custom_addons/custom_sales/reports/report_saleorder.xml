@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="report_saleorder_vietnamese" inherit_id="sale.report_saleorder_raw">
+        <xpath expr="//t[@t-call='sale.report_saleorder_document']" position="attributes">
+            <attribute name="t-lang">'vi_VN'</attribute>
+        </xpath>
+    </template>
+
+    <template id="report_saleorder_pro_forma_vietnamese"
+              inherit_id="sale.report_saleorder_pro_forma">
+        <xpath expr="//t[@t-call='sale.report_saleorder_document']" position="attributes">
+            <attribute name="t-lang">'vi_VN'</attribute>
+        </xpath>
+    </template>
+
+    <template id="report_saleorder_document_vietnamese"
+              inherit_id="sale.report_saleorder_document">
+        <xpath expr="//t[@t-set='doc']" position="attributes">
+            <attribute name="t-value">doc.with_context(lang='vi_VN')</attribute>
+        </xpath>
+        <xpath expr="//div[hasclass('page')]/t[@t-set='layout_document_title']"
+               position="replace">
+            <t t-set="layout_document_title">
+                <span t-if="is_proforma">HÓA ĐƠN CHIẾU LỆ - </span>
+                <span t-if="not is_proforma and doc.state in ['draft', 'sent']">BÁO GIÁ - </span>
+                <span t-if="not is_proforma and doc.state not in ['draft', 'sent']">ĐƠN BÁN HÀNG - </span>
+                <span t-field="doc.name"/>
+            </t>
+        </xpath>
+        <xpath expr="//div[hasclass('page')]/t[@t-set='layout_document_title']"
+               position="before">
+            <style>
+                .sale_tbody {
+                    color: #172033;
+                    font-size: 10.5pt;
+                }
+                .page #informations {
+                    margin-top: 16px;
+                    padding: 12px 14px;
+                    background: #f3f6fa;
+                    border-radius: 6px;
+                }
+                .page #informations strong {
+                    display: block;
+                    margin-bottom: 4px;
+                    color: #53627a;
+                    font-size: 9pt;
+                    text-transform: uppercase;
+                }
+                .page table.o_main_table {
+                    margin-top: 18px;
+                    border-collapse: separate;
+                    border-spacing: 0;
+                }
+                .page table.o_main_table thead th {
+                    padding: 9px 7px;
+                    color: #34445d;
+                    background: #eaf0f7;
+                    border-bottom: 1px solid #cbd5e1;
+                    font-size: 9pt;
+                    text-transform: uppercase;
+                }
+                .page table.o_main_table tbody td {
+                    padding: 9px 7px;
+                    border-bottom: 1px solid #e8edf3;
+                    vertical-align: top;
+                }
+                .page .o_total_table tr.o_total {
+                    border-top: 2px solid #334155;
+                    font-size: 12pt;
+                }
+            </style>
+        </xpath>
+        <xpath expr="//div[@name='informations_reference']/strong" position="replace">
+            <strong>Mã tham chiếu</strong>
+        </xpath>
+        <xpath expr="//div[@name='informations_date']/strong[@t-if='is_proforma']"
+               position="replace">
+            <strong t-if="is_proforma">Ngày lập</strong>
+        </xpath>
+        <xpath expr="//div[@name='informations_date']/strong[@t-elif=&quot;doc.state in ['draft', 'sent']&quot;]"
+               position="replace">
+            <strong t-elif="doc.state in ['draft', 'sent']">Ngày báo giá</strong>
+        </xpath>
+        <xpath expr="//div[@name='informations_date']/strong[@t-else='']"
+               position="replace">
+            <strong t-else="">Ngày đặt hàng</strong>
+        </xpath>
+        <xpath expr="//div[@name='expiration_date']/strong" position="replace">
+            <strong>Báo giá có hiệu lực đến</strong>
+        </xpath>
+        <xpath expr="//div[@id='informations']//div[@t-field='doc.user_id']/preceding-sibling::strong[1]"
+               position="replace">
+            <strong>Nhân viên kinh doanh</strong>
+        </xpath>
+        <xpath expr="//th[@name='th_description']" position="replace">
+            <th name="th_description" class="text-start">Sản phẩm / Diễn giải</th>
+        </xpath>
+        <xpath expr="//th[@name='th_quantity']" position="replace">
+            <th name="th_quantity" class="text-end text-nowrap">Số lượng</th>
+        </xpath>
+        <xpath expr="//th[@name='th_priceunit']" position="replace">
+            <th name="th_priceunit" class="text-end text-nowrap">Đơn giá</th>
+        </xpath>
+        <xpath expr="//th[@name='th_discount']/span" position="replace">
+            <span>Chiết khấu (%)</span>
+        </xpath>
+        <xpath expr="//th[@name='th_taxes']" position="replace">
+            <th name="th_taxes" class="text-end">Thuế</th>
+        </xpath>
+        <xpath expr="//th[@name='th_subtotal']/span" position="replace">
+            <span>Thành tiền</span>
+        </xpath>
+        <xpath expr="//td[@name='td_name']/span[@t-field='line.name']" position="replace">
+            <span t-out="line._get_quote_report_name()"
+                  t-options="{'widget': 'text'}"
+                  dir="auto"/>
+        </xpath>
+        <xpath expr="//div[@name='signature']/div[1]/strong" position="replace">
+            <strong>Chữ ký xác nhận</strong>
+        </xpath>
+        <xpath expr="//p[@id='fiscal_position_remark']/strong" position="replace">
+            <strong>Ghi chú về thuế:</strong>
+        </xpath>
+    </template>
+
+    <template id="sale_tax_totals_vietnamese"
+              inherit_id="sale.document_tax_totals">
+        <xpath expr="//tr[hasclass('o_subtotal')]/td/span" position="attributes">
+            <attribute name="t-out">'Tiền hàng trước thuế' if subtotal['name'] == 'Untaxed Amount' else subtotal['name']</attribute>
+        </xpath>
+        <xpath expr="//tr[hasclass('o_total')]/td/strong" position="replace">
+            <strong>Tổng thanh toán</strong>
+        </xpath>
+        <xpath expr="//tr[@t-if=&quot;'cash_rounding_base_amount_currency' in tax_totals&quot;]/td[1]"
+               position="replace">
+            <td>Làm tròn</td>
+        </xpath>
+    </template>
+</odoo>

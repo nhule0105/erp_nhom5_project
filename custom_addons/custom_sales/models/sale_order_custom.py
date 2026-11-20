@@ -1,3 +1,5 @@
+import random
+
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 from odoo.tools import float_compare
@@ -109,6 +111,38 @@ class SaleOrder(models.Model):
                 quantities_by_product.get(product, 0.0) + quantity
             )
 
+        selected_lot_ids = set()
+        for line in self.order_line.filtered(
+            lambda item: not item.display_type
+            and item.product_id
+            and item.x_selected_serial_lot_ids
+        ):
+            required_quantity = line.product_uom._compute_quantity(
+                line.product_uom_qty,
+                line.product_id.uom_id,
+            )
+            lots = line.x_selected_serial_lot_ids
+            if line.product_id.tracking != 'serial':
+                raise ValidationError(
+                    f'Sản phẩm {line.product_id.display_name} không theo dõi Serial.'
+                )
+            if len(lots) > round(required_quantity):
+                raise ValidationError(
+                    f'Đã chọn {len(lots)} Serial cho {line.product_id.display_name}, '
+                    f'nhưng số lượng đặt chỉ là {required_quantity:g}.'
+                )
+            if any(lot.product_id != line.product_id for lot in lots):
+                raise ValidationError(
+                    f'Serial đã chọn không thuộc sản phẩm {line.product_id.display_name}.'
+                )
+            duplicate_ids = selected_lot_ids.intersection(lots.ids)
+            if duplicate_ids:
+                duplicate = self.env['stock.lot'].browse(next(iter(duplicate_ids)))
+                raise ValidationError(
+                    f'Serial {duplicate.name} đang được chọn nhiều lần trong đơn hàng.'
+                )
+            selected_lot_ids.update(lots.ids)
+
         for product, required_quantity in quantities_by_product.items():
             if product.tracking == 'serial':
                 product.product_tmpl_id.action_convert_untracked_serial_stock()
@@ -164,6 +198,15 @@ class SaleOrder(models.Model):
                 and lots_by_id[lot_id].x_custom_status == 'available'
                 and lots_by_id[lot_id].lifecycle_status == 'available'
             ])
+            selected_lots = self.order_line.filtered(
+                lambda line: line.product_id == product
+            ).mapped('x_selected_serial_lot_ids')
+            unavailable_selected_lots = selected_lots - available_lots
+            if unavailable_selected_lots:
+                raise ValidationError(
+                    'Serial đã chọn không còn khả dụng trong kho: %s'
+                    % ', '.join(unavailable_selected_lots.mapped('name'))
+                )
             required_serials = int(round(required_quantity))
             if len(available_lots) < required_serials:
                 raise ValidationError(
@@ -193,6 +236,16 @@ class StockPicking(models.Model):
             lambda record: record.picking_type_code == 'outgoing'
             and record.sale_id
         ):
+            used_lot_ids_by_product = {}
+            for existing_move in picking.move_ids:
+                used_lot_ids_by_product.setdefault(
+                    existing_move.product_id.id,
+                    set(),
+                ).update(
+                    existing_move.move_line_ids.filtered(
+                        lambda line: line.quantity > 0 and line.lot_id
+                    ).mapped('lot_id').ids
+                )
             for move in picking.move_ids.filtered(
                 lambda item: item.product_id.tracking == 'serial'
                 and item.state not in ('done', 'cancel')
@@ -213,7 +266,11 @@ class StockPicking(models.Model):
                 if missing_quantity <= 0:
                     continue
 
-                used_lot_ids = set(assigned_lines.mapped('lot_id').ids)
+                used_lot_ids = used_lot_ids_by_product.setdefault(
+                    move.product_id.id,
+                    set(),
+                )
+                own_assigned_lot_ids = set(assigned_lines.mapped('lot_id').ids)
                 quants = self.env['stock.quant'].search([
                     ('product_id', '=', move.product_id.id),
                     ('location_id', 'child_of', move.location_id.id),
@@ -221,15 +278,51 @@ class StockPicking(models.Model):
                     ('company_id', 'in', [False, picking.company_id.id]),
                     ('lot_id', '!=', False),
                 ])
-                available_lots = []
+                free_quantity_by_lot = {}
+                lots_by_id = {}
                 for quant in quants:
-                    if quant.lot_id.id in used_lot_ids:
-                        continue
-                    if quant.lot_id.x_custom_status != 'available':
-                        continue
-                    if quant.quantity - quant.reserved_quantity > 0:
-                        available_lots.append(quant.lot_id)
-                        used_lot_ids.add(quant.lot_id.id)
+                    lot_id = quant.lot_id.id
+                    free_quantity_by_lot[lot_id] = (
+                        free_quantity_by_lot.get(lot_id, 0.0)
+                        + quant.quantity
+                        - quant.reserved_quantity
+                    )
+                    lots_by_id[lot_id] = quant.lot_id
+
+                available_lots = [
+                    lots_by_id[lot_id]
+                    for lot_id, free_quantity in free_quantity_by_lot.items()
+                    if lot_id not in used_lot_ids
+                    and float_compare(
+                        free_quantity,
+                        1.0,
+                        precision_rounding=move.product_id.uom_id.rounding,
+                    ) >= 0
+                    and lots_by_id[lot_id].x_custom_status == 'available'
+                    and lots_by_id[lot_id].lifecycle_status == 'available'
+                ]
+                available_lot_ids = {lot.id for lot in available_lots}
+                selected_lots = move.sale_line_id.x_selected_serial_lot_ids
+                unavailable_selected_lots = selected_lots.filtered(
+                    lambda lot: (
+                        lot.id not in own_assigned_lot_ids
+                        and lot.id not in available_lot_ids
+                    )
+                )
+                if unavailable_selected_lots:
+                    raise ValidationError(
+                        'Serial đã chọn không còn khả dụng trong kho: %s'
+                        % ', '.join(unavailable_selected_lots.mapped('name'))
+                    )
+                selected_available_lots = selected_lots.filtered(
+                    lambda lot: lot.id in available_lot_ids
+                )
+                random_lots = [
+                    lot for lot in available_lots
+                    if lot.id not in selected_lots.ids
+                ]
+                random.shuffle(random_lots)
+                available_lots = list(selected_available_lots) + random_lots
 
                 if len(available_lots) < missing_quantity:
                     raise ValidationError(
@@ -273,6 +366,7 @@ class StockPicking(models.Model):
                             'lot_id': lot.id,
                             'quantity': 1.0,
                         })
+                    used_lot_ids.add(lot.id)
 
     def _validate_sale_delivery_serials(self):
         for picking in self.filtered(
@@ -401,9 +495,22 @@ class ResPartner(models.Model):
         domain=[('state', 'in', ['sale', 'done'])],
     )
 
+    @api.model
+    def _next_customer_code(self):
+        sequence = self.env['ir.sequence']
+        while True:
+            code = sequence.next_by_code('custom.sales.customer.v2')
+            if not code:
+                raise ValidationError(
+                    'Không tìm thấy chuỗi tự sinh mã khách hàng.'
+                )
+            if not self.with_context(active_test=False).search_count([
+                ('ref', '=', code),
+            ]):
+                return code
+
     @api.model_create_multi
     def create(self, vals_list):
-        sequence = self.env['ir.sequence']
         customer_search = (
             self.env.context.get('res_partner_search_mode') == 'customer'
         )
@@ -417,13 +524,7 @@ class ResPartner(models.Model):
                 and not vals.get('parent_id')
                 and (rank or customer_search)
             ):
-                vals['ref'] = sequence.next_by_code(
-                    'custom.sales.customer.v2'
-                )
-                if not vals['ref']:
-                    raise ValidationError(
-                        'Không tìm thấy chuỗi tự sinh mã khách hàng.'
-                    )
+                vals['ref'] = self._next_customer_code()
         return super().create(vals_list)
 
     def write(self, vals):
@@ -433,14 +534,7 @@ class ResPartner(models.Model):
                 lambda partner: not partner.ref and not partner.parent_id
             )
             for partner in customers_without_code:
-                code = self.env['ir.sequence'].next_by_code(
-                    'custom.sales.customer.v2'
-                )
-                if not code:
-                    raise ValidationError(
-                        'Không tìm thấy chuỗi tự sinh mã khách hàng.'
-                    )
-                partner.write({'ref': code})
+                partner.write({'ref': self._next_customer_code()})
         return result
 
 
@@ -476,6 +570,17 @@ class SaleOrderLine(models.Model):
         "('x_custom_status', '=', 'available'), ('lifecycle_status', '=', 'available')]",
         help='Chọn Serial ở báo giá nếu đã biết; nếu chưa, nhân viên chọn trên phiếu giao.',
     )
+    x_selected_serial_lot_ids = fields.Many2many(
+        'stock.lot',
+        'sale_order_line_selected_serial_rel',
+        'sale_line_id',
+        'lot_id',
+        string='Serial đã chọn',
+        copy=False,
+        domain="[('product_id', '=', product_id)]",
+        help='Serial được chọn khi tìm sản phẩm; nếu để trống, hệ thống tự gán '
+        'Serial còn khả dụng lúc xác nhận đơn.',
+    )
     x_selected_product_details = fields.Text(
         string='Thông tin sản phẩm',
         compute='_compute_selected_product_details',
@@ -494,6 +599,47 @@ class SaleOrderLine(models.Model):
         help='Số lượng còn khả dụng trong kho của đơn. Với sản phẩm theo dõi Serial, '
         'chỉ tính các Serial còn hàng và chưa bị giữ chỗ.',
     )
+
+    @api.onchange('product_id')
+    def _onchange_product_clear_selected_serials(self):
+        for line in self:
+            if any(
+                lot.product_id != line.product_id
+                for lot in line.x_selected_serial_lot_ids
+            ):
+                line.x_selected_serial_lot_ids = False
+
+    def _get_quote_report_name(self):
+        self.ensure_one()
+        product = self.product_id.with_context(lang='vi_VN')
+        product_names = {
+            'MASTER-BAG': 'Ba lô laptop',
+            'MASTER-MAT': 'Lót chuột',
+            'MASTER-MOU': 'Chuột tặng kèm',
+        }
+        description = self.name or product.name or ''
+        product_code = product.default_code
+        if product_code:
+            prefix = f'[{product_code}] '
+            lines = description.split('\n', 1)
+            if self.is_combo_gift and lines[0].startswith('Quà tặng combo:'):
+                lines[0] = prefix + product_names.get(product_code, product.name)
+            if lines[0].startswith(prefix):
+                lines[0] = prefix + product_names.get(
+                    product_code,
+                    lines[0][len(prefix):],
+                )
+            description = '\n'.join(lines)
+
+        if self.is_combo_gift:
+            combo_name = self.x_combo_rule_id.name
+            if combo_name:
+                description = (
+                    f'{description.splitlines()[0]}\n'
+                    f'Quà tặng kèm: {combo_name}'
+                )
+
+        return description
 
     @api.depends(
         'product_id',
@@ -664,3 +810,36 @@ class SaleOrderLine(models.Model):
                 key=lambda lot_id: lots_by_id[lot_id].name,
             )
         )
+
+
+class AccountMoveLine(models.Model):
+    _inherit = 'account.move.line'
+
+    def _get_invoice_report_name(self):
+        self.ensure_one()
+        description = self.name or ''
+        product = self.product_id
+        product_names = {
+            'MASTER-BAG': 'Ba lô laptop',
+            'MASTER-MAT': 'Lót chuột',
+            'MASTER-MOU': 'Chuột tặng kèm',
+        }
+        product_name = product_names.get(product.default_code)
+        if product_name:
+            lines = description.split('\n', 1)
+            prefix = f'[{product.default_code}] '
+            if lines[0].startswith(prefix):
+                lines[0] = prefix + product_name
+            else:
+                lines[0] = product_name
+            description = '\n'.join(lines)
+
+        gift_line = self.sale_line_ids.filtered('is_combo_gift')[:1]
+        if gift_line:
+            combo_name = gift_line.x_combo_rule_id.name
+            if combo_name:
+                lines = description.split('\n', 1)
+                subtitle = f'Quà tặng kèm: {combo_name}'
+                description = '\n'.join([lines[0], subtitle])
+
+        return description

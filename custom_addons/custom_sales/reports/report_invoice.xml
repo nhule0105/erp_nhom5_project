@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="report_invoice_vietnamese" inherit_id="account.report_invoice">
+        <xpath expr="//t[@t-set='lang']" position="attributes">
+            <attribute name="t-value">'vi_VN'</attribute>
+        </xpath>
+    </template>
+
+    <template id="report_invoice_document_vietnamese"
+              inherit_id="account.report_invoice_document">
+        <xpath expr="//t[@t-set='o']" position="attributes">
+            <attribute name="t-value">o.with_context(lang='vi_VN')</attribute>
+        </xpath>
+        <xpath expr="//div[hasclass('page') and hasclass('mb-4')]/t[@t-set='layout_document_title']"
+               position="replace">
+            <t t-set="layout_document_title">
+                <span t-if="proforma and o.move_type == 'out_invoice'">HÓA ĐƠN CHIẾU LỆ</span>
+                <span t-elif="o.move_type == 'out_invoice' and o.state == 'posted'">HÓA ĐƠN</span>
+                <span t-elif="o.move_type == 'out_invoice' and o.state == 'draft'">HÓA ĐƠN NHÁP</span>
+                <span t-elif="o.move_type == 'out_invoice' and o.state == 'cancel'">HÓA ĐƠN ĐÃ HỦY</span>
+                <span t-elif="o.move_type == 'out_refund' and o.state == 'posted'">HÓA ĐƠN ĐIỀU CHỈNH</span>
+                <span t-elif="o.move_type == 'out_refund'">HÓA ĐƠN ĐIỀU CHỈNH NHÁP</span>
+                <span t-elif="o.move_type == 'in_refund'">HÓA ĐƠN NHÀ CUNG CẤP - ĐIỀU CHỈNH</span>
+                <span t-elif="o.move_type == 'in_invoice'">HÓA ĐƠN NHÀ CUNG CẤP</span>
+                <span t-if="o.name and o.name != '/'" t-field="o.name"/>
+            </t>
+        </xpath>
+        <xpath expr="//div[hasclass('page') and hasclass('mb-4')]/t[@t-set='layout_document_title']"
+               position="before">
+            <style>
+                .invoice_main .page {
+                    color: #172033;
+                    font-size: 11pt;
+                }
+                .invoice_main #informations {
+                    margin-top: 16px;
+                    padding: 12px 14px;
+                    background: #f3f6fa;
+                    border-radius: 6px;
+                }
+                .invoice_main #informations strong {
+                    display: block;
+                    margin-bottom: 4px;
+                    color: #53627a;
+                    font-size: 9pt;
+                    text-transform: uppercase;
+                }
+                .invoice_main table[name="invoice_line_table"] {
+                    margin-top: 18px;
+                    border-collapse: separate;
+                    border-spacing: 0;
+                }
+                .invoice_main table[name="invoice_line_table"] thead th {
+                    padding: 9px 7px;
+                    color: #34445d;
+                    background: #eaf0f7;
+                    border-bottom: 1px solid #cbd5e1;
+                    font-size: 9pt;
+                    text-transform: uppercase;
+                }
+                .invoice_main table[name="invoice_line_table"] tbody td {
+                    padding: 9px 7px;
+                    border-bottom: 1px solid #e8edf3;
+                    vertical-align: top;
+                }
+                .invoice_main #right-elements {
+                    margin-top: 22px !important;
+                }
+                .invoice_main .o_total_table tr.o_total {
+                    border-top: 2px solid #334155;
+                    font-size: 12pt;
+                }
+                .invoice_main .o_total_table tr.o_total td {
+                    padding-top: 10px;
+                }
+            </style>
+        </xpath>
+        <xpath expr="//div[@name='invoice_date']//strong" position="replace">
+            <strong>Ngày lập hóa đơn</strong>
+        </xpath>
+        <xpath expr="//div[@name='due_date']/strong" position="replace">
+            <strong>Hạn thanh toán</strong>
+        </xpath>
+        <xpath expr="//div[@name='delivery_date']/strong" position="replace">
+            <strong>Ngày giao hàng</strong>
+        </xpath>
+        <xpath expr="//div[@name='origin']/strong" position="replace">
+            <strong>Đơn hàng</strong>
+        </xpath>
+        <xpath expr="//div[@name='customer_code']/strong" position="replace">
+            <strong>Mã khách hàng</strong>
+        </xpath>
+        <xpath expr="//div[@name='reference']/strong" position="replace">
+            <strong>Mã tham chiếu</strong>
+        </xpath>
+        <xpath expr="//th[@name='th_description']/span" position="replace">
+            <span>Sản phẩm / Diễn giải</span>
+        </xpath>
+        <xpath expr="//th[@name='th_quantity']/span" position="replace">
+            <span>Số lượng</span>
+        </xpath>
+        <xpath expr="//th[@name='th_priceunit']/span" position="replace">
+            <span>Đơn giá</span>
+        </xpath>
+        <xpath expr="//th[@name='th_discount']/span" position="replace">
+            <span>Chiết khấu (%)</span>
+        </xpath>
+        <xpath expr="//th[@name='th_taxes']/span" position="replace">
+            <span>Thuế</span>
+        </xpath>
+        <xpath expr="//th[@name='th_subtotal']/span" position="replace">
+            <span>Thành tiền</span>
+        </xpath>
+        <xpath expr="//table[@name='invoice_line_table']//td[@name='account_invoice_line_name']/span[@t-field='line.name']"
+               position="replace">
+            <span t-out="line._get_invoice_report_name()"
+                  t-options="{'widget': 'text'}"
+                  dir="auto"/>
+        </xpath>
+        <xpath expr="//p[@name='payment_communication']" position="replace">
+            <p name="payment_communication">
+                Nội dung thanh toán:
+                <span class="fw-bold" t-field="o.payment_reference"/>
+                <t t-if="o.partner_bank_id">
+                    <br/>Tài khoản nhận:
+                    <span t-field="o.partner_bank_id" class="fw-bold"/>
+                </t>
+            </p>
+        </xpath>
+        <xpath expr="//p[@t-if='o.company_id.display_invoice_amount_total_words']"
+               position="replace">
+            <p class="text-end lh-sm" t-if="o.company_id.display_invoice_amount_total_words">
+                Tổng tiền bằng chữ:<br/>
+                <small class="text-muted lh-sm">
+                    <span t-field="o.amount_total_words"/>
+                </small>
+            </p>
+        </xpath>
+    </template>
+
+    <template id="invoice_tax_totals_vietnamese"
+              inherit_id="account.document_tax_totals_template">
+        <xpath expr="//tr[hasclass('o_subtotal')]/td/span" position="attributes">
+            <attribute name="t-out">'Tiền hàng trước thuế' if subtotal['name'] == 'Untaxed Amount' else subtotal['name']</attribute>
+        </xpath>
+        <xpath expr="//tr[hasclass('o_total')]/td/strong" position="replace">
+            <strong>Tổng thanh toán</strong>
+        </xpath>
+        <xpath expr="//tr[@t-if=&quot;'cash_rounding_base_amount_currency' in tax_totals&quot;]/td[1]"
+               position="replace">
+            <td>Làm tròn</td>
+        </xpath>
+    </template>
+</odoo>

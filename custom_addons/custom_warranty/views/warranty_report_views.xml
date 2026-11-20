@@ -4,10 +4,9 @@
         <field name="name">warranty.ticket.operations.graph</field>
         <field name="model">warranty.ticket</field>
         <field name="arch" type="xml">
-            <graph string="Tổng quan hậu mãi theo tháng" type="bar">
+            <graph string="Số phiếu hậu mãi theo tháng" type="bar">
                 <field name="receive_date" interval="month"/>
                 <field name="ticket_type"/>
-                <field name="state"/>
             </graph>
         </field>
     </record>
@@ -19,8 +18,6 @@
             <pivot string="Tổng hợp phiếu hậu mãi">
                 <field name="ticket_type" type="row"/>
                 <field name="state" type="row"/>
-                <field name="issue_category" type="col"/>
-                <field name="technician_id" type="col"/>
                 <field name="receive_date" interval="month" type="col"/>
                 <field name="processing_duration_hours" type="measure"/>
             </pivot>
