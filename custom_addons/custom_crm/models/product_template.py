@@ -26,6 +26,44 @@ class StockLot(models.Model):
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
+    def _compute_nbr_moves(self):
+        """Reconcile displayed received quantity with current stock history.
+
+        Some initial/manual/chat stock entries create inventory directly and do
+        not have an incoming move line.  Treat that quantity as received stock
+        so the displayed balance is always: received - delivered = on hand.
+        """
+        self.nbr_moves_in = 0
+        self.nbr_moves_out = 0
+        if not self:
+            return
+
+        quantities = {
+            template.id: {'incoming': 0.0, 'outgoing': 0.0}
+            for template in self
+        }
+        for picking_code in ('outgoing',):
+            grouped_moves = self.env['stock.move.line']._read_group(
+                [
+                    ('product_id.product_tmpl_id', 'in', self.ids),
+                    ('state', '=', 'done'),
+                    ('picking_code', '=', picking_code),
+                ],
+                ['product_id', 'product_uom_id'],
+                ['quantity:sum'],
+            )
+            for product, uom, quantity in grouped_moves:
+                template_id = product.product_tmpl_id.id
+                quantities[template_id][picking_code] += uom._compute_quantity(
+                    quantity,
+                    product.uom_id,
+                )
+
+        for template in self:
+            outgoing = round(quantities[template.id]['outgoing'])
+            template.nbr_moves_out = outgoing
+            template.nbr_moves_in = round(template.qty_available + outgoing)
+
     lifecycle_product_type = fields.Selection(
         [
             ('laptop', 'Laptop'),
@@ -70,6 +108,28 @@ class ProductTemplate(models.Model):
     backpack_size = fields.Char(string='Kích thước balo')
     backpack_capacity = fields.Char(string='Sức chứa balo')
     backpack_color = fields.Char(string='Màu sắc balo')
+
+    def action_open_product_lot(self):
+        self.ensure_one()
+        action = self.env['ir.actions.actions']._for_xml_id(
+            'stock.action_product_production_lot_form'
+        )
+        allowed_companies = self._context.get('allowed_company_ids') or self.env.companies.ids
+        lot_ids = self.env['stock.quant'].search([
+            ('product_id.product_tmpl_id', '=', self.id),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+            ('lot_id', '!=', False),
+            ('company_id', 'in', allowed_companies),
+        ]).mapped('lot_id').ids
+        action['domain'] = [('id', 'in', lot_ids)]
+        action['context'] = {
+            'default_product_tmpl_id': self.id,
+            'search_default_group_by_location': True,
+        }
+        if self.product_variant_count == 1:
+            action['context']['default_product_id'] = self.product_variant_id.id
+        return action
 
     def action_convert_untracked_serial_stock(self):
         self.ensure_one()
@@ -173,6 +233,72 @@ class ProductTemplate(models.Model):
 
 class ProductProduct(models.Model):
     _inherit = 'product.product'
+
+    def _compute_nbr_moves(self):
+        """Show moved quantities instead of the number of move lines.
+
+        The standard Odoo fields are displayed as In/Out on the product form.
+        Out is the completed delivered quantity. In also includes stock entered
+        through opening/manual/chat inventory adjustments, which may not have an
+        incoming move line, so the displayed balance remains consistent.
+        """
+        self.nbr_moves_in = 0
+        self.nbr_moves_out = 0
+        if not self:
+            return
+
+        quantities = {
+            product.id: {'incoming': 0.0, 'outgoing': 0.0}
+            for product in self
+        }
+        for picking_code in ('outgoing',):
+            grouped_moves = self.env['stock.move.line']._read_group(
+                [
+                    ('product_id', 'in', self.ids),
+                    ('state', '=', 'done'),
+                    ('picking_code', '=', picking_code),
+                ],
+                ['product_id', 'product_uom_id'],
+                ['quantity:sum'],
+            )
+            for product, uom, quantity in grouped_moves:
+                quantities[product.id][picking_code] += uom._compute_quantity(
+                    quantity,
+                    product.uom_id,
+                )
+
+        for product in self:
+            outgoing = round(quantities[product.id]['outgoing'])
+            product.nbr_moves_out = outgoing
+            product.nbr_moves_in = round(product.qty_available + outgoing)
+
+    def _get_available_lot_domain(self, product_domain):
+        """Restrict product lot lists to serials currently in internal stock."""
+        return product_domain + [
+            ('quant_ids.location_id.usage', '=', 'internal'),
+            ('quant_ids.quantity', '>', 0),
+        ]
+
+    def action_open_product_lot(self):
+        self.ensure_one()
+        action = self.env['ir.actions.actions']._for_xml_id(
+            'stock.action_product_production_lot_form'
+        )
+        allowed_companies = self._context.get('allowed_company_ids') or self.env.companies.ids
+        lot_ids = self.env['stock.quant'].search([
+            ('product_id', '=', self.id),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+            ('lot_id', '!=', False),
+            ('company_id', 'in', allowed_companies),
+        ]).mapped('lot_id').ids
+        action['domain'] = [('id', 'in', lot_ids)]
+        action['context'] = {
+            'default_product_id': self.id,
+            'set_product_readonly': True,
+            'search_default_group_by_location': True,
+        }
+        return action
 
     def action_convert_untracked_serial_stock(self):
         self.ensure_one()

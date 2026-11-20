@@ -10,9 +10,9 @@
         'data/warranty_cron.xml',
         'security/warranty_security.xml',
         'security/ir.model.access.csv',
+        'reports/warranty_receipt_report.xml',
         'views/warranty_views.xml',
         'views/warranty_report_views.xml',
-        'reports/warranty_receipt_report.xml',
         'views/warranty_menus.xml',
     ],
     'demo': [

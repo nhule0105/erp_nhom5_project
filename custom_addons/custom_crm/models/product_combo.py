@@ -203,7 +203,13 @@ class ProductCombo(models.Model):
         serials = sorted(lots_by_name)
         return len(serials), serials
 
-    @api.depends('component_product_ids')
+    @api.depends(
+        'component_product_ids',
+        'component_product_ids.stock_quant_ids.quantity',
+        'component_product_ids.stock_quant_ids.reserved_quantity',
+        'component_product_ids.stock_quant_ids.lot_id.lifecycle_status',
+        'component_product_ids.stock_quant_ids.lot_id.x_custom_status',
+    )
     def _compute_available_combo_inventory(self):
         for combo in self:
             component_products = combo.component_product_ids
