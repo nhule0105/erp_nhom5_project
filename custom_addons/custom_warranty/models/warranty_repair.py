@@ -156,22 +156,36 @@ class WarrantyTicketRepair(models.Model):
                     _('Hãy chọn biểu hiện lỗi hoặc nhập mô tả lỗi trước khi bắt đầu sửa chữa.')
                 )
             ticket._receive_repair_device()
-            ticket.state = 'fixing'
-            if not ticket.repair_start_datetime:
-                ticket.repair_start_datetime = fields.Datetime.now()
+            ticket.with_context(repair_action='start').write({
+                'state': 'fixing',
+                'repair_start_datetime': (
+                    ticket.repair_start_datetime or fields.Datetime.now()
+                ),
+            })
 
     def action_waiting_parts(self):
         for ticket in self:
-            ticket.state = 'waiting_parts'
+            if ticket.ticket_type != 'repair' or ticket.state != 'fixing':
+                raise UserError(_('Chỉ phiếu đang sửa mới được chuyển sang chờ linh kiện.'))
+            ticket.with_context(repair_action='waiting_parts').write({
+                'state': 'waiting_parts',
+            })
 
     def action_resume_repair(self):
         for ticket in self:
-            ticket.state = 'fixing'
+            if ticket.ticket_type != 'repair' or ticket.state != 'waiting_parts':
+                raise UserError(_('Chỉ phiếu chờ linh kiện mới được tiếp tục sửa.'))
+            ticket.with_context(repair_action='resume').write({
+                'state': 'fixing',
+            })
 
     def action_complete_repair(self):
         for ticket in self:
-            if ticket.state not in ('fixing', 'waiting_parts'):
-                raise UserError(_('Phiếu sửa chữa phải đang xử lý mới có thể hoàn tất.'))
+            if ticket.ticket_type != 'repair' or ticket.state != 'fixing':
+                raise UserError(
+                    _('Phiếu phải đang sửa mới có thể hoàn tất. '
+                      'Hãy chọn Tiếp tục sửa sau khi linh kiện đã về.')
+                )
             if not ticket.repair_resolution:
                 raise ValidationError(_('Hãy ghi nhận kết quả sửa chữa trước khi hoàn tất phiếu.'))
             if (
@@ -198,7 +212,7 @@ class WarrantyTicketRepair(models.Model):
                 _('Trả máy sau sửa chữa'),
             )
             ticket.write({'repair_move_ids': [(4, return_move.id)]})
-            ticket.write({
+            ticket.with_context(repair_action='complete').write({
                 'state': 'done',
                 'completed_date': fields.Date.context_today(ticket),
                 'repair_completed_datetime': fields.Datetime.now(),

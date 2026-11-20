@@ -54,7 +54,7 @@
                     <button name="action_resume_repair" type="object" string="Tiếp tục sửa"
                             invisible="ticket_type != 'repair' or state != 'waiting_parts'"/>
                     <button name="action_complete_repair" type="object" string="Hoàn tất sửa chữa"
-                            invisible="ticket_type != 'repair' or state not in ['fixing', 'waiting_parts'] or not warranty_decision_user_id or not repair_resolution"/>
+                            invisible="ticket_type != 'repair' or state != 'fixing' or not warranty_decision_user_id or not repair_resolution"/>
                     <button name="action_confirm_warranty_decision" type="object"
                             string="Xác nhận quyết định bảo hành" class="oe_highlight"
                             groups="stock.group_stock_manager"
@@ -300,6 +300,10 @@
                 <field name="is_overdue"/>
                 <field name="receive_date"/>
                 <field name="state"/>
+                <field name="approval_status"/>
+                <field name="repair_resolution"/>
+                <field name="warranty_decision_user_id"/>
+                <field name="warranty_decision"/>
                 <templates>
                     <t t-name="card">
                         <div class="oe_kanban_global_click p-2">
@@ -333,6 +337,28 @@
                             <div t-if="record.is_overdue.raw_value"
                                  class="badge text-bg-danger mt-2">
                                 Quá hạn hẹn trả
+                            </div>
+                            <div t-if="record.ticket_type.raw_value == 'repair'" class="mt-2">
+                                <button name="action_submit_for_approval" type="object"
+                                        class="btn btn-secondary btn-sm me-1"
+                                        t-if="record.approval_status.raw_value == 'none' and record.warranty_decision.raw_value in ['free', 'paid'] and record.state.raw_value != 'done'">
+                                    Gửi duyệt
+                                </button>
+                                <button name="action_waiting_parts" type="object"
+                                        class="btn btn-secondary btn-sm me-1"
+                                        t-if="record.state.raw_value == 'fixing'">
+                                    Chờ linh kiện
+                                </button>
+                                <button name="action_resume_repair" type="object"
+                                        class="btn btn-secondary btn-sm me-1"
+                                        t-if="record.state.raw_value == 'waiting_parts'">
+                                    Tiếp tục sửa
+                                </button>
+                                <button name="action_complete_repair" type="object"
+                                        class="btn btn-primary btn-sm"
+                                        t-if="record.state.raw_value == 'fixing'">
+                                    Hoàn tất sửa chữa
+                                </button>
                             </div>
                         </div>
                     </t>
