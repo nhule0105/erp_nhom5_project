@@ -6,14 +6,22 @@ from odoo.tools.float_utils import float_compare
 class WarrantyTicketExchange(models.Model):
     _inherit = 'warranty.ticket'
 
+    def _get_defective_stock_location(self):
+        return self._get_internal_warranty_location(
+            'warranty_defective_location',
+            _('Khu vực cách ly hàng lỗi bảo hành'),
+        )
+
     def _check_manager(self):
         if not self.env.user.has_group('stock.group_stock_manager'):
             raise AccessError(_('Chỉ quản lý kho mới được duyệt đổi mới 1-1.'))
 
     def _get_lot_location(self, lot, usage, available=False):
+        company = self.sale_order_id.company_id or lot.company_id or self.env.company
         quants = self.env['stock.quant'].search([
             ('lot_id', '=', lot.id),
             ('location_id.usage', '=', usage),
+            ('company_id', 'in', [False, company.id]),
             ('quantity', '>', 0),
         ], order='id')
         for quant in quants:
@@ -29,14 +37,9 @@ class WarrantyTicketExchange(models.Model):
     def _create_exchange_moves(self, old_sn, new_sn):
         if self.exchange_move_ids:
             raise UserError(_('Phiếu đổi mới này đã có giao dịch kho; không được tạo trùng.'))
+        company = self.sale_order_id.company_id or old_sn.company_id or self.env.company
         customer_location = self.env.ref('stock.stock_location_customers')
-        loss_location = self.env['stock.location'].search([
-            ('usage', '=', 'inventory'),
-            ('scrap_location', '=', False),
-            ('company_id', '=', self.env.company.id),
-        ], limit=1)
-        if not loss_location:
-            raise UserError(_('Không tìm thấy vị trí điều chỉnh tồn kho cho công ty hiện tại.'))
+        defective_location = self._get_defective_stock_location()
         new_source = self._get_lot_location(new_sn, 'internal', available=True)
         old_source = self._get_lot_location(old_sn, 'customer', available=True)
         if not old_source:
@@ -52,7 +55,7 @@ class WarrantyTicketExchange(models.Model):
 
         moves = self.env['stock.move']
         for lot, source, destination in (
-            (old_sn, old_source, loss_location),
+            (old_sn, old_source, defective_location),
             (new_sn, new_source, customer_location),
         ):
             move = self.env['stock.move'].create({
@@ -62,10 +65,11 @@ class WarrantyTicketExchange(models.Model):
                 'product_uom': lot.product_id.uom_id.id,
                 'location_id': source.id,
                 'location_dest_id': destination.id,
-                'company_id': self.env.company.id,
+                'company_id': company.id,
             })
             self.env['stock.move.line'].create({
                 'move_id': move.id,
+                'company_id': company.id,
                 'product_id': lot.product_id.id,
                 'product_uom_id': lot.product_id.uom_id.id,
                 'location_id': source.id,
@@ -161,10 +165,15 @@ class WarrantyTicketExchange(models.Model):
                 raise ValidationError(_('Phải chọn đầy đủ serial cũ và serial thay thế.'))
             if new_sn.x_custom_status != 'available':
                 raise ValidationError(_('Serial thay thế không còn sẵn sàng trong kho.'))
+            if (
+                'lifecycle_status' in self.env['stock.lot']._fields
+                and new_sn.lifecycle_status != 'available'
+            ):
+                raise ValidationError(_('Serial thay thế không còn sẵn sàng trong kho.'))
 
             exchange_moves = ticket._create_exchange_moves(old_sn, new_sn)
-            old_sn.write({'x_custom_status': 'defective'})
-            new_sn.write({
+            old_serial_values = {'x_custom_status': 'defective'}
+            replacement_serial_values = {
                 'x_custom_status': 'sold',
                 'x_customer_id': old_sn.x_customer_id.id,
                 'x_purchase_date': old_sn.x_purchase_date,
@@ -175,7 +184,12 @@ class WarrantyTicketExchange(models.Model):
                 'x_delivery_picking_id': old_sn.x_delivery_picking_id.id,
                 'x_sale_date': old_sn.x_sale_date,
                 'x_replaced_from_lot_id': old_sn.id,
-            })
+            }
+            if 'lifecycle_status' in self.env['stock.lot']._fields:
+                old_serial_values['lifecycle_status'] = 'defective'
+                replacement_serial_values['lifecycle_status'] = 'issued'
+            old_sn.write(old_serial_values)
+            new_sn.write(replacement_serial_values)
             ticket.with_context(exchange_approval=True).write({
                 'exchange_move_ids': [(6, 0, exchange_moves.ids)],
                 'state': 'done',

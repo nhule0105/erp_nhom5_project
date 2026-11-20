@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="paperformat_warranty_receipt" model="report.paperformat">
+        <field name="name">Biên nhận hậu mãi A4 gọn</field>
+        <field name="format">A4</field>
+        <field name="orientation">Portrait</field>
+        <field name="margin_top">10</field>
+        <field name="margin_bottom">10</field>
+        <field name="margin_left">12</field>
+        <field name="margin_right">12</field>
+        <field name="header_line" eval="False"/>
+        <field name="header_spacing">0</field>
+        <field name="dpi">90</field>
+    </record>
+
     <record id="action_warranty_receipt_report" model="ir.actions.report">
         <field name="name">Biên nhận tiếp nhận thiết bị hậu mãi</field>
         <field name="model">warranty.ticket</field>
@@ -8,31 +21,58 @@
         <field name="report_file">custom_warranty.warranty_receipt_document</field>
         <field name="binding_model_id" ref="model_warranty_ticket"/>
         <field name="binding_type">report</field>
+        <field name="paperformat_id" ref="paperformat_warranty_receipt"/>
         <field name="print_report_name">'Bien_nhan_tiep_nhan_%s' % (object.ticket_code)</field>
     </record>
 
     <template id="warranty_receipt_document">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="ticket">
-                <t t-call="web.external_layout">
+                <t t-call="web.basic_layout">
                     <div class="page">
                         <style>
+                            .warranty-receipt,
+                            .warranty-receipt * {
+                                font-family: "DejaVu Sans", sans-serif !important;
+                            }
                             .warranty-receipt table { width: 100%; }
                             .warranty-receipt th, .warranty-receipt td {
-                                padding: 6px;
+                                padding: 4px;
                                 vertical-align: top;
                                 overflow-wrap: anywhere;
                             }
-                            .warranty-receipt .section-title {
-                                margin-top: 18px;
-                                border-bottom: 1px solid #6c63a8;
-                                padding-bottom: 4px;
+                            .warranty-receipt h2 {
+                                font-size: 20px;
+                                margin: 0 0 4px;
                             }
-                            .warranty-receipt .signatures { margin-top: 40px; }
+                            .warranty-receipt .ticket-meta {
+                                margin-bottom: 10px;
+                            }
+                            .warranty-receipt .section-title {
+                                margin-top: 12px;
+                                border-bottom: 1px solid #6c63a8;
+                                padding-bottom: 3px;
+                                font-size: 16px;
+                            }
+                            .warranty-receipt p {
+                                margin-bottom: 8px;
+                            }
+                            .warranty-receipt .disclaimer {
+                                margin-top: 8px;
+                            }
+                            .warranty-receipt .signatures { margin-top: 20px; }
+                            .warranty-receipt .signature-space { height: 28mm; }
+                            .warranty-receipt .signature-hint { margin-top: 2px; }
+                            .warranty-receipt-footer {
+                                border-top: 1px solid #222;
+                                color: #777;
+                                font-size: 10px;
+                                padding-top: 4px;
+                            }
                         </style>
                         <div class="warranty-receipt">
                         <h2 class="text-center">BIÊN NHẬN TIẾP NHẬN THIẾT BỊ HẬU MÃI</h2>
-                        <p class="text-center">
+                        <p class="text-center ticket-meta">
                             Mã phiếu: <strong t-field="ticket.ticket_code"/>
                             <br/>
                             Loại yêu cầu: <strong t-field="ticket.ticket_type"/>
@@ -127,7 +167,7 @@
                             </tbody>
                         </table>
 
-                        <p class="mt-3">
+                        <p class="disclaimer">
                             Khách hàng xác nhận đã bàn giao thiết bị và các phụ kiện ghi trên biên nhận để cửa hàng
                             kiểm tra, xử lý theo yêu cầu. Biên nhận này xác nhận việc bàn giao, không phải kết luận
                             thiết bị đủ điều kiện bảo hành/đổi mới, kết quả sửa chữa hoặc khoản phí phải thanh toán.
@@ -135,20 +175,19 @@
                         <div class="row signatures">
                             <div class="col-6 text-center">
                                 <strong>Khách hàng bàn giao</strong>
-                                <br/>
-                                <br/>
-                                <br/>
-                                (Ký và ghi rõ họ tên)
+                                <div class="signature-hint"><em>(Ký và ghi rõ họ tên)</em></div>
+                                <div class="signature-space"/>
                             </div>
                             <div class="col-6 text-center">
                                 <strong>Nhân viên tiếp nhận</strong>
-                                <br/>
-                                <br/>
-                                <br/>
-                                (Ký và ghi rõ họ tên)
+                                <div class="signature-hint"><em>(Ký và ghi rõ họ tên)</em></div>
+                                <div class="signature-space"/>
                             </div>
                         </div>
                         </div>
+                    </div>
+                    <div class="footer warranty-receipt-footer">
+                        Trang <span class="page"/> / <span class="topage"/>
                     </div>
                 </t>
             </t>
