@@ -64,33 +64,12 @@ def seed_sales_workflow(env):
         )
     reusing_completed_orders = bool(existing_orders)
 
-    target_order_names = [
-        f'S{number:05d}' for number in range(1, 6)
-    ]
-    legacy_orders = SaleOrder.search([
-        ('name', 'in', target_order_names),
-        ('origin', 'not in', origins),
-    ])
-    for order in legacy_orders:
-        if order.invoice_ids or order.picking_ids:
-            raise UserError(
-                f'Không thể đổi mã {order.name}: đơn có hóa đơn hoặc phiếu kho.'
-            )
-        legacy_name = f'OLD-{order.name}'
-        if SaleOrder.search([('name', '=', legacy_name)], limit=1):
-            raise UserError(
-                f'Mã lưu trữ {legacy_name} đã tồn tại; không tự ghi đè.'
-            )
-        order.write({'name': legacy_name})
-
     customers = []
     for number, email in enumerate(customer_emails, start=1):
-        customer_code = f'KH{number:03d}'
         partner = Partner.search([('email', '=', email)], limit=1)
         if not partner:
             partner = Partner.create({
-                'name': f'Customer {customer_code}',
-                'ref': customer_code,
+                'name': f'Demo Sales Customer {number:02d}',
                 'email': email,
                 'customer_rank': 1,
                 'company_type': 'person',
@@ -102,8 +81,7 @@ def seed_sales_workflow(env):
                     f'Khách {partner.display_name} đang được đơn khác sử dụng.'
                 )
             partner.write({
-                'name': f'Customer {customer_code}',
-                'ref': customer_code,
+                'name': f'Demo Sales Customer {number:02d}',
                 'customer_rank': 1,
                 'company_type': 'person',
             })
@@ -256,7 +234,6 @@ def seed_sales_workflow(env):
                 )
         else:
             order.write({
-                'name': target_order_names[number - 1],
                 'partner_id': partner.id,
             })
             for picking in order.picking_ids.filtered(
@@ -266,29 +243,7 @@ def seed_sales_workflow(env):
                 picking.move_ids.move_line_ids.lot_id.write({
                     'x_customer_id': partner.id,
                 })
-        if order.name != target_order_names[number - 1]:
-            order.write({'name': target_order_names[number - 1]})
         orders |= order
-
-    sequence = env['ir.sequence'].with_user(admin).search(
-        [('code', '=', 'sale.order'), ('company_id', '=', company.id)],
-        limit=1,
-    ) or env['ir.sequence'].with_user(admin).search(
-        [('code', '=', 'sale.order'), ('company_id', '=', False)],
-        limit=1,
-    )
-    if (
-        sequence
-        and sequence.implementation == 'standard'
-        and not reusing_completed_orders
-    ):
-        sequence_name = f'ir_sequence_{sequence.id:03d}'
-        env.cr.execute('SELECT to_regclass(%s)', [sequence_name])
-        if env.cr.fetchone()[0]:
-            env.cr.execute(
-                'SELECT setval(%s, 5, true)',
-                [sequence_name],
-            )
 
     env.cr.flush()
     for records in (orders, orders.partner_id, orders.picking_ids):

@@ -32,6 +32,7 @@ class ProductProduct(models.Model):
             )
 
     def get_serial_picker_data(self):
+        """Trả dữ liệu cho popup chọn Serial; chỉ Serial còn hàng mới chọn được."""
         self.ensure_one()
         self.check_access('read')
         if self.tracking != 'serial':
@@ -98,6 +99,7 @@ class ProductTemplate(models.Model):
             )
 
     def get_serial_picker_data(self):
+        """Trả danh sách Serial của biến thể; template nhiều biến thể cần chọn biến thể trước."""
         self.ensure_one()
         self.check_access('read')
         if self.tracking != 'serial':

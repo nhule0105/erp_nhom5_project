@@ -5,6 +5,68 @@ from odoo.exceptions import ValidationError
 from odoo.tools import float_compare
 
 
+def _synchronize_sequence_with_existing_codes(
+    env,
+    sequence,
+    table,
+    column,
+    pattern,
+    company_id=None,
+):
+    env.cr.execute(
+        'SELECT pg_advisory_xact_lock(%s, %s)',
+        [173205, sequence.id],
+    )
+    query = (
+        f'SELECT MAX(substring({column} FROM %s)::bigint) '
+        f'FROM {table} WHERE {column} ~ %s'
+    )
+    params = [pattern, pattern]
+    if table == 'sale_order' and company_id:
+        query += ' AND company_id = %s'
+        params.append(company_id)
+    env.cr.execute(query, params)
+    max_number = env.cr.fetchone()[0] or 0
+    if not max_number:
+        return
+
+    next_number = max_number + 1
+    if sequence.implementation != 'standard':
+        if sequence.number_next < next_number:
+            sequence.number_next = next_number
+        return
+
+    sequence_name = f'ir_sequence_{sequence.id:03d}'
+    env.cr.execute('SELECT to_regclass(%s)', [sequence_name])
+    if not env.cr.fetchone()[0]:
+        raise RuntimeError(f'Missing PostgreSQL sequence {sequence_name}.')
+    env.cr.execute(
+        f'SELECT last_value, is_called FROM "{sequence_name}"'
+    )
+    last_value, is_called = env.cr.fetchone()
+    current_next = (
+        last_value + (sequence.number_increment or 1)
+        if is_called
+        else last_value
+    )
+    if current_next < next_number:
+        env.cr.execute(
+            'SELECT setval(%s, %s, false)',
+            [sequence_name, next_number],
+        )
+
+
+def _sequence_for_company(env, code, company):
+    Sequence = env['ir.sequence']
+    return Sequence.search([
+        ('code', '=', code),
+        ('company_id', '=', company.id),
+    ], limit=1) or Sequence.search([
+        ('code', '=', code),
+        ('company_id', '=', False),
+    ], limit=1)
+
+
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
@@ -33,6 +95,52 @@ class SaleOrder(models.Model):
         string='Thông tin khuyến mãi',
         compute='_compute_promotional_combo',
     )
+
+    @api.model
+    def _synchronize_order_sequence(self, company):
+        sequence = _sequence_for_company(self.env, 'sale.order', company)
+        if sequence:
+            sequence.write({
+                'prefix': 'S',
+                'padding': 5,
+                'number_increment': 1,
+            })
+            self._synchronize_existing_code_sequence(
+                sequence,
+                'sale_order',
+                'name',
+                r'([0-9]+)$',
+                sequence.company_id.id,
+            )
+
+    @api.model
+    def _synchronize_existing_code_sequence(
+        self,
+        sequence,
+        table,
+        column,
+        pattern,
+        company_id=None,
+    ):
+        _synchronize_sequence_with_existing_codes(
+            self.env,
+            sequence,
+            table,
+            column,
+            pattern,
+            company_id,
+        )
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        company_ids = {
+            vals.get('company_id') or self.env.company.id
+            for vals in vals_list
+            if vals.get('name', '/') in ('/', False)
+        }
+        for company in self.env['res.company'].browse(sorted(company_ids)):
+            self._synchronize_order_sequence(company)
+        return super().create(vals_list)
 
     def _apply_promotional_combo(self):
         SaleLine = self.env['sale.order.line']
@@ -80,16 +188,23 @@ class SaleOrder(models.Model):
             )
 
     def action_confirm(self):
+        """Luồng xác nhận bán: kiểm tra đơn, gọi Odoo tạo phiếu giao, rồi gán Serial."""
         for order in self:
             if order.state not in ('draft', 'sent'):
                 continue
+            # Bước 1: thêm quà combo (nếu đủ điều kiện), sau đó kiểm tra tồn và Serial.
             order._apply_promotional_combo()
             order._check_sale_stock_availability()
+
+        # Bước 2: giữ quy trình chuẩn Odoo; xác nhận đơn sẽ tạo phiếu giao hàng.
         result = super().action_confirm()
+
+        # Bước 3: phiếu giao đã có, ưu tiên Serial khách chọn; thiếu thì tự gán.
         self.mapped('picking_ids')._auto_assign_delivery_serials()
         return result
 
     def _check_sale_stock_availability(self):
+        """Chặn xác nhận nếu kho xuất không đủ hàng hoặc Serial bán được."""
         self.ensure_one()
         warehouse = self.warehouse_id
         location = warehouse.lot_stock_id
@@ -232,6 +347,7 @@ class StockPicking(models.Model):
     _inherit = 'stock.picking'
 
     def _auto_assign_delivery_serials(self):
+        """Gán Serial cho phiếu giao: Serial đã chọn trước được ưu tiên."""
         for picking in self.filtered(
             lambda record: record.picking_type_code == 'outgoing'
             and record.sale_id
@@ -369,6 +485,7 @@ class StockPicking(models.Model):
                     used_lot_ids.add(lot.id)
 
     def _validate_sale_delivery_serials(self):
+        """Kiểm tra Serial thực giao: đủ số lượng, đúng máy, không trùng, còn trong kho."""
         for picking in self.filtered(
             lambda record: record.picking_type_code == 'outgoing'
             and record.sale_id
@@ -446,11 +563,14 @@ class StockPicking(models.Model):
                         )
 
     def button_validate(self):
+        # Chạy lại kiểm tra ngay lúc bấm Xác nhận trên phiếu giao,
+        # vì tồn kho/Serial có thể đã thay đổi sau khi đơn bán được xác nhận.
         self._auto_assign_delivery_serials()
         self._validate_sale_delivery_serials()
         return super().button_validate()
 
     def _action_done(self):
+        """Sau khi Odoo hoàn tất giao, ghi nhận chủ sở hữu và thời hạn bảo hành."""
         self._auto_assign_delivery_serials()
         self._validate_sale_delivery_serials()
         result = super()._action_done()
@@ -468,6 +588,8 @@ class StockPicking(models.Model):
                 if not serial:
                     continue
                 warranty_months = serial.product_id.product_tmpl_id._get_warranty_period_months()
+                # Chỉ đến bước giao hoàn tất mới chuyển Serial sang đã bán
+                # và bắt đầu tính bảo hành theo ngày giao thực tế.
                 serial.write({
                     'x_customer_id': picking.sale_id.partner_id.id or picking.partner_id.id,
                     'x_custom_status': 'sold',
@@ -497,9 +619,28 @@ class ResPartner(models.Model):
 
     @api.model
     def _next_customer_code(self):
-        sequence = self.env['ir.sequence']
+        company = self.env.company
+        sequence = _sequence_for_company(
+            self.env,
+            'custom.sales.customer.v2',
+            company,
+        )
+        if sequence:
+            sequence.write({
+                'prefix': 'KH',
+                'padding': 5,
+                'number_increment': 1,
+            })
+            self.env['sale.order']._synchronize_existing_code_sequence(
+                sequence,
+                'res_partner',
+                'ref',
+                r'^KH([0-9]+)$',
+            )
         while True:
-            code = sequence.next_by_code('custom.sales.customer.v2')
+            code = sequence.with_company(company).next_by_code(
+                'custom.sales.customer.v2'
+            )
             if not code:
                 raise ValidationError(
                     'Không tìm thấy chuỗi tự sinh mã khách hàng.'

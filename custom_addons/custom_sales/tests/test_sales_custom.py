@@ -46,6 +46,40 @@ class TestSalesCustom(TransactionCase):
             int(first_customer.ref[2:]) + 1,
         )
 
+    def test_customer_code_increments_by_one_after_existing_code(self):
+        existing_customer = self.env['res.partner'].create({
+            'name': 'Existing customer',
+            'ref': 'KH00011',
+            'customer_rank': 1,
+        })
+
+        sequence = self.env['ir.sequence'].search([
+            ('code', '=', 'custom.sales.customer.v2'),
+        ], limit=1)
+        sequence.write({'number_increment': 1})
+        new_customer = self.env['res.partner'].create({
+            'name': 'New customer',
+            'customer_rank': 1,
+        })
+
+        self.assertEqual(existing_customer.ref, 'KH00011')
+        self.assertEqual(new_customer.ref, 'KH00012')
+
+    def test_sale_order_number_increments_by_one_after_existing_code(self):
+        product = self._create_product()
+        partner = self.env['res.partner'].create({
+            'name': 'Sequence test customer',
+            'customer_rank': 1,
+        })
+        existing_order = self.env['sale.order'].create({
+            'name': 'S00014',
+            'partner_id': partner.id,
+        })
+        new_order = self._create_order(product)
+
+        self.assertEqual(existing_order.name, 'S00014')
+        self.assertEqual(new_order.name, 'S00015')
+
     def test_customer_code_skips_codes_used_by_archived_customers(self):
         sequence = self.env['ir.sequence'].search([
             ('code', '=', 'custom.sales.customer.v2'),
