@@ -530,7 +530,7 @@ class WarrantyTicket(models.Model):
         'warranty_ticket_return_move_rel',
         'ticket_id',
         'move_id',
-        string='Giao dịch trả hàng',
+        string='Giao dịch kho trả hàng',
         readonly=True,
         copy=False,
     )
