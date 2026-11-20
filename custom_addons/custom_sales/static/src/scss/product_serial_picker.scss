@@ -1,0 +1,13 @@
+.o_serial_picker_dialog {
+    max-height: 60vh;
+    overflow: auto;
+
+    .o_serial_picker_select_column {
+        width: 2rem;
+    }
+
+    .o_serial_picker_unavailable {
+        color: var(--o-gray-500);
+        background-color: var(--o-gray-100);
+    }
+}

@@ -18,6 +18,12 @@
                 </group>
             </xpath>
             <xpath expr="//field[@name='order_line']/list/field[@name='product_id']" position="after">
+                <field name="x_selected_serial_lot_ids"
+                       string="Số Serial"
+                       widget="serial_lot_picker"
+                       optional="show"
+                       domain="[('product_id', '=', product_id)]"
+                       options="{'no_create': True, 'no_quick_create': True}"/>
                 <field name="is_combo_gift" optional="show" widget="boolean"/>
                 <field name="x_combo_rule_id" optional="hide"/>
                 <field name="x_selected_product_details"
@@ -25,9 +31,21 @@
                        optional="show"
                        readonly="1"/>
             </xpath>
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_id']"
+                   position="attributes">
+                <attribute name="widget">sol_product_many2one_serial</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_id']"
+                   position="attributes">
+                <attribute name="widget">sol_product_many2one_serial</attribute>
+            </xpath>
             <xpath expr="//field[@name='order_line']/form//field[@name='product_id']"
                    position="after">
                 <field name="x_selected_product_details" readonly="1"/>
+                <field name="x_selected_serial_lot_ids"
+                       widget="serial_lot_picker"
+                       domain="[('product_id', '=', product_id)]"
+                       options="{'no_create': True, 'no_quick_create': True}"/>
             </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Serial bán hàng" name="delivered_serials">
@@ -48,6 +66,34 @@
                         </list>
                     </field>
                 </page>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_product_product_tree_serial_count" model="ir.ui.view">
+        <field name="name">product.product.list.serial.count</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_product_tree_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list/field[@name='default_code']" position="after">
+                <field name="x_serial_count"
+                       string="Số Serial"
+                       widget="serial_count"
+                       optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_product_template_tree_serial_count" model="ir.ui.view">
+        <field name="name">product.template.list.serial.count</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_tree_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list/field[@name='default_code']" position="after">
+                <field name="x_serial_count"
+                       string="Số Serial"
+                       widget="serial_count"
+                       optional="show"/>
             </xpath>
         </field>
     </record>

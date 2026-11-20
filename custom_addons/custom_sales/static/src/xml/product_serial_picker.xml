@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="custom_sales.SerialCountField">
+        <button type="button"
+                class="btn btn-link p-0"
+                t-att-disabled="state.loading || !value"
+                t-on-click="openSerials">
+            <t t-esc="value"/>
+        </button>
+    </t>
+
+    <t t-name="custom_sales.SerialLotPickerField">
+        <button type="button"
+                class="btn btn-link p-0 text-start"
+                t-att-disabled="state.loading || props.readonly || !productId"
+                t-on-click="openSerials">
+            <t t-if="selectedIds.length">
+                <t t-esc="selectedIds.length"/>
+                <span class="ms-1">đã chọn</span>
+            </t>
+            <t t-else="">Chọn Serial</t>
+        </button>
+    </t>
+
+    <t t-name="custom_sales.SerialPickerDialog">
+        <Dialog title="'Serial - ' + props.productName" size="'md'">
+            <div class="o_serial_picker_dialog">
+                <input type="search"
+                       class="form-control mb-2"
+                       placeholder="Tìm số serial..."
+                       t-att-value="state.searchTerm"
+                       t-on-input="onSearchInput"/>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th class="o_serial_picker_select_column"/>
+                            <th>Serial</th>
+                            <th>Trạng thái</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="filteredSerials"
+                            t-as="serial"
+                            t-key="serial.id"
+                            t-att-class="{'o_serial_picker_unavailable': !serial.selectable}">
+                            <td>
+                                <input type="checkbox"
+                                       t-att-checked="isSelected(serial.id)"
+                                       t-att-disabled="!serial.selectable"
+                                       t-on-change="() => this.toggleSerial(serial)"/>
+                            </td>
+                            <td><t t-esc="serial.name"/></td>
+                            <td>
+                                <t t-if="serial.selectable">Sẵn sàng</t>
+                                <t t-else="">
+                                    <t t-esc="serial.status_label"/>
+                                    <span t-if="serial.selection_message" class="ms-1">
+                                        (<t t-esc="serial.selection_message"/>)
+                                    </span>
+                                    <span t-if="serial.status_label === 'Trong kho / Sẵn sàng bán' &amp;&amp; !serial.selection_message"
+                                          class="ms-1">
+                                        (không còn khả dụng)
+                                    </span>
+                                </t>
+                            </td>
+                        </tr>
+                        <tr t-if="!filteredSerials.length">
+                            <td colspan="3" class="text-center text-muted">
+                                <t t-if="props.serials.length">Không tìm thấy serial phù hợp.</t>
+                                <t t-else="">Sản phẩm chưa có Serial.</t>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <t t-set-slot="footer">
+                <button type="button"
+                        class="btn btn-primary"
+                        t-on-click="confirm">
+                    Chọn Serial
+                </button>
+                <button type="button"
+                        class="btn btn-secondary"
+                        t-on-click="props.close">
+                    Đóng
+                </button>
+            </t>
+        </Dialog>
+    </t>
+</templates>

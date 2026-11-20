@@ -190,6 +190,117 @@ class TestSalesCustom(TransactionCase):
         with self.assertRaises(ValidationError):
             order.action_confirm()
 
+    def test_serial_picker_disables_sold_and_repair_serials(self):
+        product = self._create_product(tracking='serial')
+        warehouse = self.env['stock.warehouse'].search(
+            [('company_id', '=', self.env.company.id)],
+            limit=1,
+        )
+        serials = {
+            'available': self.env['stock.lot'].create({
+                'name': 'SERIAL-PICKER-AVAILABLE',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'available',
+                'lifecycle_status': 'available',
+            }),
+            'sold': self.env['stock.lot'].create({
+                'name': 'SERIAL-PICKER-SOLD',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'sold',
+                'lifecycle_status': 'issued',
+            }),
+            'under_repair': self.env['stock.lot'].create({
+                'name': 'SERIAL-PICKER-REPAIR',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'under_repair',
+                'lifecycle_status': 'issued',
+            }),
+        }
+        for lot in serials.values():
+            self.env['stock.quant']._update_available_quantity(
+                product,
+                warehouse.lot_stock_id,
+                1,
+                lot_id=lot,
+            )
+
+        picker_data = {
+            item['id']: item for item in product.get_serial_picker_data()
+        }
+        self.assertEqual(product.x_serial_count, 3)
+        self.assertEqual(product.product_tmpl_id.x_serial_count, 3)
+        self.assertTrue(picker_data[serials['available'].id]['selectable'])
+        self.assertFalse(picker_data[serials['sold'].id]['selectable'])
+        self.assertFalse(picker_data[serials['under_repair'].id]['selectable'])
+
+        order = self._create_order(product)
+        for key in ('sold', 'under_repair'):
+            with self.assertRaises(ValidationError):
+                order.order_line.write({
+                    'x_selected_serial_lot_ids': [
+                        (6, 0, [serials[key].id]),
+                    ],
+                })
+
+    def test_confirmation_randomly_assigns_only_available_serials(self):
+        product = self._create_product(tracking='serial')
+        warehouse = self.env['stock.warehouse'].search(
+            [('company_id', '=', self.env.company.id)],
+            limit=1,
+        )
+        serials = {
+            'available': self.env['stock.lot'].create({
+                'name': 'SERIAL-AUTO-AVAILABLE',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'available',
+                'lifecycle_status': 'available',
+            }),
+            'sold': self.env['stock.lot'].create({
+                'name': 'SERIAL-AUTO-SOLD',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'sold',
+                'lifecycle_status': 'issued',
+            }),
+            'under_repair': self.env['stock.lot'].create({
+                'name': 'SERIAL-AUTO-REPAIR',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'under_repair',
+                'lifecycle_status': 'issued',
+            }),
+            'issued': self.env['stock.lot'].create({
+                'name': 'SERIAL-AUTO-ISSUED',
+                'product_id': product.id,
+                'company_id': self.env.company.id,
+                'x_custom_status': 'available',
+                'lifecycle_status': 'issued',
+            }),
+        }
+        for lot in serials.values():
+            self.env['stock.quant']._update_available_quantity(
+                product,
+                warehouse.lot_stock_id,
+                1,
+                lot_id=lot,
+            )
+
+        order = self._create_order(product)
+        self.assertFalse(order.order_line.x_selected_serial_lot_ids)
+        order.action_confirm()
+
+        picking = order.picking_ids.filtered(
+            lambda record: record.picking_type_code == 'outgoing'
+        )
+        assigned_serials = picking.move_ids.move_line_ids.filtered(
+            lambda line: line.quantity > 0
+        ).mapped('lot_id')
+        self.assertEqual(assigned_serials, serials['available'])
+
     def test_confirmation_applies_the_matching_combo_gift_once(self):
         sold_product = self._create_product()
         gift_product = self._create_product()
