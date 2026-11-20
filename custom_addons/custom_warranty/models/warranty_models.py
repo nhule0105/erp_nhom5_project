@@ -375,28 +375,6 @@ class WarrantyTicket(models.Model):
         default='pending',
         required=True,
     )
-    approval_status = fields.Selection(
-        [
-            ('none', 'Chưa gửi duyệt'),
-            ('pending', 'Chờ chủ cửa hàng duyệt'),
-            ('approved', 'Đã được duyệt'),
-        ],
-        string='Trạng thái duyệt',
-        default='none',
-        required=True,
-        copy=False,
-    )
-    approval_user_id = fields.Many2one(
-        'res.users',
-        string='Người duyệt',
-        readonly=True,
-        copy=False,
-    )
-    approval_date = fields.Datetime(
-        string='Thời điểm duyệt',
-        readonly=True,
-        copy=False,
-    )
     warranty_decision_reason = fields.Text(
         string='Lý do quyết định bảo hành',
         copy=False,
@@ -589,30 +567,6 @@ class WarrantyTicket(models.Model):
             return 'paid'
         return 'free' if self.issue_category == 'nsx' else 'paid'
 
-    def action_submit_for_approval(self):
-        for ticket in self:
-            if ticket.ticket_type != 'repair':
-                raise UserError(
-                    _('Chỉ phiếu sửa chữa/bảo hành mới gửi duyệt miễn phí hoặc tính phí.')
-                )
-            if ticket.approval_status != 'none':
-                raise UserError(
-                    _('Phiếu này đã được gửi duyệt hoặc đã được chủ cửa hàng xác nhận.')
-                )
-            if ticket.state == 'done':
-                raise UserError(_('Không thể gửi duyệt phiếu đã hoàn tất.'))
-            expected_decision = ticket._get_warranty_decision_policy()
-            if expected_decision == 'pending':
-                raise ValidationError(
-                    _('Chưa đủ thông tin để gửi duyệt. Hãy xác định nguyên nhân và hạn bảo hành.')
-                )
-            if ticket.warranty_decision != expected_decision:
-                raise ValidationError(
-                    _('Đề xuất phải phù hợp với chính sách: "%s".')
-                    % dict(self._fields['warranty_decision'].selection).get(expected_decision)
-                )
-            ticket.write({'approval_status': 'pending'})
-
     def action_confirm_warranty_decision(self):
         if not self.env.user.has_group('stock.group_stock_manager'):
             raise AccessError(_('Chỉ chủ cửa hàng/quản lý kho được xác nhận quyết định bảo hành.'))
@@ -621,10 +575,8 @@ class WarrantyTicket(models.Model):
                 raise UserError(
                     _('Chỉ phiếu sửa chữa/bảo hành mới có quyết định miễn phí hoặc tính phí.')
                 )
-            if ticket.approval_status != 'pending':
-                raise UserError(
-                    _('Nhân viên cần gửi phiếu để chủ cửa hàng duyệt trước.')
-                )
+            if ticket.warranty_decision_user_id:
+                raise UserError(_('Quyết định bảo hành của phiếu này đã được xác nhận.'))
             if ticket.warranty_decision not in ('free', 'paid'):
                 raise ValidationError(
                     _('Chưa thể xác nhận: hãy chọn Miễn phí hoặc Tính phí sau khi kiểm tra.')
@@ -642,9 +594,6 @@ class WarrantyTicket(models.Model):
             if not (ticket.warranty_decision_reason or '').strip():
                 raise ValidationError(_('Phải ghi rõ lý do trước khi xác nhận quyết định.'))
             ticket.with_context(warranty_decision_confirmation=True).write({
-                'approval_status': 'approved',
-                'approval_user_id': self.env.user.id,
-                'approval_date': fields.Datetime.now(),
                 'warranty_decision_user_id': self.env.user.id,
                 'warranty_decision_date': fields.Datetime.now(),
             })
